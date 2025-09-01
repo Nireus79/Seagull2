@@ -495,3 +495,90 @@ Re-optimize quarterly or when Sharpe ratio degrades significantly
 
 The optimal threshold will likely be 2-5x your commission costs in typical crypto market conditions, 
 but this varies significantly with market volatility and your holding period."""
+# INDICATORS -----------------------------------------------------------------------------------------------------------
+"""creating relative indicators (distance from EMA, ratios, differences) is excellent practice for ML models. This is much better than using raw price levels because:
+Why Relative Indicators Are Better:
+
+Stationarity: Raw prices are non-stationary, but price-EMA differences are more stationary
+Scale Independence: Models don't get confused by absolute price levels (ETH at $1000 vs $4000)
+Feature Stability: Relationships remain consistent across different market periods
+Reduced Multicollinearity: Price-derived ratios are less correlated than raw prices
+
+Your approach of Close - EMA is good, but you can make it even better.
+Recommended Indicators for Lopez de Prado + Elder Framework:
+1. Trend Identification (Elder's Screen 1 - Market Tide)
+Multi-Timeframe Momentum Ratios:
+python# Better than raw MACD - normalized by volatility
+macd_ratio = (MACD_line - MACD_signal) / ATR
+trend_strength = (Close - EMA_long) / (ATR * sqrt(lookback_days))
+momentum_divergence = (price_momentum_short / price_momentum_long) - 1
+Trend Persistence Measures:
+python# Fits Lopez de Prado's emphasis on autocorrelation
+trend_consistency = rolling_correlation(returns, lagged_returns)
+directional_strength = abs(Close - EMA) / (High - Low)  # Trend vs noise ratio
+2. Market Structure (Lopez de Prado Microstructure)
+Volume-Price Relationships:
+pythonvolume_price_trend = correlation(volume_changes, price_changes, window=20)
+volume_efficiency = abs(price_change) / volume_normalized  # Price impact per unit volume
+accumulation_distribution = cumsum((Close - Low) - (High - Close)) / (High - Low) * Volume
+Volatility Structure:
+python# Lopez de Prado's volatility clustering
+vol_regime = current_vol / rolling_mean(vol, long_window)
+vol_persistence = correlation(vol_t, vol_t-1, window=20)
+realized_vs_implied = realized_vol / implied_vol  # If you have options data
+3. Entry Timing (Elder's Screen 2 - Wave Direction)
+Mean Reversion vs Momentum:
+python# Better than raw RSI - volatility adjusted
+rsi_normalized = (RSI - 50) / ATR_percentile
+mean_reversion_strength = (Close - VWAP) / daily_range
+momentum_vs_reversion = short_momentum / mean_reversion_indicator
+Oscillator Divergences:
+pythonprice_oscillator = (EMA_fast - EMA_slow) / ATR
+volume_oscillator = (Volume_MA_short - Volume_MA_long) / Volume_MA_long
+oscillator_divergence = price_oscillator - volume_oscillator
+4. Regime Detection (Lopez de Prado Structural Breaks)
+Market Regime Indicators:
+python# Volatility regime changes
+vol_breakout = (current_vol - vol_MA) / vol_std
+correlation_breakdown = rolling_corr_btc_eth - long_term_corr_btc_eth
+liquidity_stress = bid_ask_spread / price  # If available
+Information Flow:
+python# Lopez de Prado's information-driven events
+surprise_volume = (current_volume - expected_volume) / volume_std
+price_acceleration = second_derivative(log_prices)
+information_ratio = abs(returns) / volume_normalized
+5. Risk Management (Both Frameworks)
+Dynamic Position Sizing Inputs:
+python# Lopez de Prado's bet sizing
+signal_confidence = abs(prediction_probability - 0.5) * 2
+volatility_forecast = GARCH_volatility or exponential_weighted_vol
+correlation_adjustment = 1 / (1 + avg_correlation_with_other_positions)
+Specific Recommendations for Your Script:
+Replace These:
+
+Raw EMAs → EMA distance ratios: (Close - EMA) / ATR
+Raw MACD → MACD efficiency: MACD / volatility
+Raw RSI → RSI momentum: (RSI - 50) * momentum_direction
+
+Add These Cross-Timeframe Features:
+python# Elder's triple screen across your 30m/4H/1D structure
+trend_alignment = sign(30m_trend) * sign(4H_trend) * sign(1D_trend)
+momentum_cascade = (30m_momentum / 4H_momentum) - 1
+volatility_cascade = 30m_vol / 4H_vol
+Meta-Features (Lopez de Prado Style):
+pythonfeature_importance_decay = exponential_weight(feature_age)
+prediction_confidence = abs(ensemble_prediction - 0.5)
+regime_stability = rolling_std(market_regime_indicator)
+Implementation Priority:
+
+Start with volatility-normalized indicators - biggest bang for buck
+Add cross-timeframe momentum ratios - fits Elder perfectly
+Include volume-price efficiency measures - crucial for crypto
+Build regime detection features - Lopez de Prado's key insight
+
+This approach will give you features that are:
+
+Stationary for ML models
+Theoretically grounded in both frameworks
+Robust across market regimes
+Computationally efficient"""
