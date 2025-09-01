@@ -271,23 +271,23 @@ def process_data():
     """
     # Load actual ETH data
     try:
-        eth5m = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')
+        raw = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')
 
         # Clean up the data as in your original script
-        eth5m['t'] = eth5m.time
-        eth5m.time = pd.to_datetime(eth5m.time, unit='ms')
-        eth5m.set_index('time', inplace=True)
+        raw['t'] = raw.time
+        raw.time = pd.to_datetime(raw.time, unit='ms')
+        raw.set_index('time', inplace=True)
 
         # Drop unnamed columns if they exist
-        if 'Unnamed: 0' in eth5m.columns:
-            eth5m.drop(columns=['Unnamed: 0'], axis=1, inplace=True)
+        if 'Unnamed: 0' in raw.columns:
+            raw.drop(columns=['Unnamed: 0'], axis=1, inplace=True)
 
-        print(f"Loaded ETH 5m data: {eth5m.shape}")
-        print(f"Date range: {eth5m.index.min()} to {eth5m.index.max()}")
-        print(f"Columns: {list(eth5m.columns)}")
+        print(f"Loaded raw data: {raw.shape}")
+        print(f"Date range: {raw.index.min()} to {raw.index.max()}")
+        print(f"Columns: {list(raw.columns)}")
 
         # Initialize the resampler
-        resampler = PointInTimeResampler(eth5m)
+        resampler = PointInTimeResampler(raw)
 
         print(f"Base timeframe detected: {resampler.base_timeframe}")
 
@@ -347,3 +347,151 @@ def process_data():
 
 
 process_data()
+# EVENTS ---------------------------------------------------------------------------------------------------------------
+"""Volume-Price Events
+1. Volume-Price Divergence Events
+
+Price makes new highs/lows but volume doesn't confirm
+More reliable than pure price events because volume shows conviction
+Less noisy than Bollinger bands in sideways markets
+
+2. Volume Shock Events
+
+Volume spikes beyond 2-3 standard deviations of rolling average
+Often precedes significant price moves
+Can be combined with price acceleration for confirmation
+
+Volatility Regime Events
+3. Volatility Breakout Events
+
+When realized volatility exceeds implied volatility by significant margin
+Or when volatility moves beyond historical percentiles (95th/5th)
+More fundamental than technical indicators
+
+4. Volatility Clustering Events
+
+Periods where volatility stays elevated for multiple periods
+Based on GARCH-type modeling rather than simple rolling windows
+
+Market Structure Events
+5. Microstructure Breakdowns
+
+When bid-ask spreads widen significantly (if you have L2 data)
+Or when price gaps exceed normal distributions
+Indicates liquidity stress or information asymmetry
+
+6. Momentum Regime Changes
+
+When short-term momentum (1-6 hours) diverges from medium-term (1-7 days)
+Uses return autocorrelation changes rather than price levels
+More stable across different market conditions
+
+Statistical Events
+7. Return Distribution Outliers
+
+Events when returns exceed historical z-scores by 2+ standard deviations
+Can be applied to log returns, volatility-adjusted returns, or residuals from factor models
+More theoretically grounded than arbitrary technical levels
+
+8. Correlation Breakdown Events
+
+When ETH/BTC correlation breaks down significantly
+Or when cross-timeframe correlations (5min vs 4H) diverge
+Indicates regime changes or unique ETH-specific events
+
+Multi-Asset Events
+9. Cross-Asset Momentum Divergence
+
+When ETH momentum diverges from broader crypto market
+Compare ETH performance vs Bitcoin, major altcoins, or crypto index
+Captures ETH-specific alpha opportunities
+
+10. Funding Rate Events (if available)
+
+When perp funding rates reach extreme levels
+Indicates positioning imbalances that often reverse
+More fundamental than pure technical analysis
+
+My Top 3 Recommendations:
+
+Volume-Price Divergence + Volatility Breakout: Combines price action with volume confirmation and volatility context
+Return Distribution Outliers: Statistically robust, adapts to changing market conditions automatically
+Multi-timeframe Momentum Regime Changes: Captures structural shifts rather than noise
+
+The key advantage of these over cusum-bollinger is they're:
+
+Less prone to false signals in choppy markets
+More adaptable to changing market regimes
+Theoretically grounded in market microstructure principles
+Less curve-fitted to historical data
+
+Which of these resonates with your trading philosophy? I can implement whichever approach interests you most."""
+# THRESHOLD ------------------------------------------------------------------------------------------------------------
+"""The most important questions in systematic trading. Using just trade commission as your barrier threshold is 
+typically too narrow and leads to several problems:
+Problems with Commission-Only Thresholds:
+
+Noise Trading: You'll trigger on every tiny price move, most of which are just market noise
+High Turnover: Excessive trading costs from frequent entries/exits
+Poor Risk-Adjusted Returns: Many small wins get wiped out by occasional larger losses
+Ignores Market Volatility: Same threshold in low-vol and high-vol periods makes no sense
+
+Better Threshold Optimization Methods:
+1. Volatility-Adjusted Thresholds
+threshold = k * σ_t * √(holding_period)
+Where k is optimized through backtesting (typically 0.5-2.0)
+
+Adapts to current market conditions
+Larger thresholds in volatile periods, smaller in calm periods
+
+2. Information-Theoretic Approach
+
+Set thresholds based on signal-to-noise ratio of your features
+Higher thresholds when your predictive features are weak
+Lower when features show strong predictive power
+
+3. Sharpe Ratio Optimization
+
+Run backtests across different threshold multipliers
+Choose the combination that maximizes risk-adjusted returns
+Typically involves testing k values from 0.25 to 3.0 in increments
+
+4. Transaction Cost + Market Impact Model
+optimal_threshold = trading_costs + α * volatility + β * illiquidity_measure
+
+Includes bid-ask spreads, slippage, market impact
+More realistic than just commission
+
+5. Meta-Learning Approach (Advanced)
+
+Use machine learning to predict optimal thresholds based on market regime features
+Features: volatility, volume, time of day, market stress indicators
+Adapts thresholds dynamically
+
+My Recommended Approach:
+Two-Stage Optimization:
+Stage 1: Volatility-Based Foundation
+profit_threshold = commission + k_profit * daily_volatility
+stop_threshold = commission + k_stop * daily_volatility
+Stage 2: Sharpe Optimization
+
+Test k_profit values: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+Test k_stop values: [0.5, 0.75, 1.0, 1.25, 1.5]
+Test asymmetric ratios (profit ≠ stop)
+
+Key Considerations:
+
+Asymmetric Thresholds: Often optimal to have profit_target ≠ stop_loss
+Time Decay: Consider adding time-based exits (your vertical barrier)
+Market Regime Awareness: Different thresholds for trending vs ranging markets
+Sample Size: Ensure enough events for statistical significance
+
+Practical Implementation:
+
+Start with k=1.0 (1x daily volatility) as baseline
+Run walk-forward optimization over your historical data
+Monitor out-of-sample performance carefully
+Re-optimize quarterly or when Sharpe ratio degrades significantly
+
+The optimal threshold will likely be 2-5x your commission costs in typical crypto market conditions, 
+but this varies significantly with market volatility and your holding period."""
