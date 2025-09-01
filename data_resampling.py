@@ -1,10 +1,49 @@
 import pandas as pd
-import numpy as np
 from typing import Dict, List, Optional
 import warnings
 
 warnings.filterwarnings('ignore')
+"""Key Features:
+1. True Point-in-Time Alignment
 
+get_point_in_time_data(): Only returns data that would have been available at any given timestamp
+No look-ahead bias - higher timeframe data is strictly from completed periods
+
+2. Last Complete Period Method
+
+Instead of forward-filling, uses the last complete higher timeframe period
+Example: At 2:30 PM, uses 4H data from the period that ended at 12:00 PM, not the current incomplete one
+
+3. Proper Temporal Labeling
+
+Uses closed='left', label='right' for statistically correct interval handling
+Each bar represents data from its time period, labeled at the end
+
+4. Flexible Alignment Options
+
+Can create aligned datasets with multiple higher timeframes
+Maintains cache for efficiency when processing large datasets
+
+5. Built-in Validation
+
+Validates temporal integrity and checks for alignment issues
+Provides metrics to ensure data quality
+
+How to Use With Your Data:
+python# Load your ETH data
+eth5m = pd.read_csv('csv/tb/ETHEUR_5m.csv')
+eth5m.time = pd.to_datetime(eth5m.time, unit='ms')
+eth5m.set_index('time', inplace=True)
+
+# Initialize the resampler
+resampler = PointInTimeResampler(eth5m)
+
+# Create properly aligned multi-timeframe dataset
+aligned_data = resampler.create_aligned_dataset(
+    target_timeframe='30min',
+    higher_timeframes=['4H', '1D']
+)
+This eliminates the statistical issues from your original approach while maintaining all the multi-timeframe information you need. Ready to build indicators on this foundation?"""
 
 class PointInTimeResampler:
     """
@@ -225,68 +264,86 @@ class PointInTimeResampler:
         return validation_results
 
 
-# Usage example and demonstration
-def demonstrate_resampling():
+# Usage example with actual ETH data
+def process_data():
     """
-    Demonstrate the point-in-time resampling system
+    Process actual ETH 5-minute data using the point-in-time resampling system
     """
-    # Create sample data (this would be replaced with your actual ETH data loading)
-    dates = pd.date_range('2023-01-01', '2023-01-10', freq='5min')
-    sample_data = pd.DataFrame({
-        'Open': np.random.uniform(1800, 2200, len(dates)),
-        'High': np.random.uniform(1900, 2300, len(dates)),
-        'Low': np.random.uniform(1700, 2100, len(dates)),
-        'Close': np.random.uniform(1800, 2200, len(dates)),
-        'Volume': np.random.uniform(1000, 10000, len(dates)),
-        't': [int(d.timestamp() * 1000) for d in dates]  # Timestamp in milliseconds
-    }, index=dates)
+    # Load actual ETH data
+    try:
+        eth5m = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')
 
-    # Ensure High >= max(Open, Close) and Low <= min(Open, Close)
-    sample_data['High'] = np.maximum(sample_data['High'],
-                                     np.maximum(sample_data['Open'], sample_data['Close']))
-    sample_data['Low'] = np.minimum(sample_data['Low'],
-                                    np.minimum(sample_data['Open'], sample_data['Close']))
+        # Clean up the data as in your original script
+        eth5m['t'] = eth5m.time
+        eth5m.time = pd.to_datetime(eth5m.time, unit='ms')
+        eth5m.set_index('time', inplace=True)
 
-    # Initialize the resampler
-    resampler = PointInTimeResampler(sample_data)
+        # Drop unnamed columns if they exist
+        if 'Unnamed: 0' in eth5m.columns:
+            eth5m.drop(columns=['Unnamed: 0'], axis=1, inplace=True)
 
-    print(f"Base timeframe detected: {resampler.base_timeframe}")
-    print(f"Base data shape: {sample_data.shape}")
+        print(f"Loaded ETH 5m data: {eth5m.shape}")
+        print(f"Date range: {eth5m.index.min()} to {eth5m.index.max()}")
+        print(f"Columns: {list(eth5m.columns)}")
 
-    # Create aligned dataset
-    aligned_data = resampler.create_aligned_dataset(
-        target_timeframe='30min',
-        higher_timeframes=['4H', '1D']
-    )
+        # Initialize the resampler
+        resampler = PointInTimeResampler(eth5m)
 
-    print(f"Aligned data shape: {aligned_data.shape}")
-    print("\nAligned data columns:")
-    for col in aligned_data.columns:
-        print(f"  {col}")
+        print(f"Base timeframe detected: {resampler.base_timeframe}")
 
-    # Validate alignment
-    validation = resampler.validate_alignment(aligned_data)
-    print(f"\nValidation results:")
-    print(f"  Total rows: {validation['total_rows']}")
-    print(f"  Temporal gaps: {validation['temporal_gaps']}")
+        # Create aligned dataset with proper point-in-time alignment
+        aligned_data = resampler.create_aligned_dataset(
+            target_timeframe='30min',
+            higher_timeframes=['4H', '1D']
+        )
 
-    # Demonstrate point-in-time data access
-    test_timestamp = sample_data.index[1000]  # Pick a point in the middle
-    pit_data = resampler.get_point_in_time_data(
-        timestamp=test_timestamp,
-        timeframes=['30min', '4H', '1D'],
-        lookback_periods={'30min': 10, '4H': 5, '1D': 3}
-    )
+        print(f"Aligned data shape: {aligned_data.shape}")
+        print("\nAligned data columns:")
+        for col in aligned_data.columns:
+            print(f"  {col}")
 
-    print(f"\nPoint-in-time data for {test_timestamp}:")
-    for tf, data in pit_data.items():
-        if not data.empty:
-            print(f"  {tf}: {len(data)} periods, last close: {data['Close'].iloc[-1]:.2f}")
-        else:
-            print(f"  {tf}: No data available")
+        # Show sample of aligned data
+        print(f"\nSample of aligned data (last 5 rows):")
+        print(aligned_data.tail())
 
-    return resampler, aligned_data
+        # Validate alignment
+        validation = resampler.validate_alignment(aligned_data)
+        print(f"\nValidation results:")
+        print(f"  Total rows: {validation['total_rows']}")
+        print(f"  Temporal gaps: {validation['temporal_gaps']}")
+
+        # Show null percentages for higher timeframe data
+        print(f"\nNull percentages by column:")
+        for col, null_pct in validation['null_percentage'].items():
+            if null_pct > 0:
+                print(f"  {col}: {null_pct:.2%}")
+
+        # Demonstrate point-in-time data access for a recent timestamp
+        if len(aligned_data) > 100:
+            test_timestamp = aligned_data.index[-50]  # Pick a point near the end but not the very end
+            pit_data = resampler.get_point_in_time_data(
+                timestamp=test_timestamp,
+                timeframes=['30min', '4H', '1D'],
+                lookback_periods={'30min': 10, '4H': 5, '1D': 3}
+            )
+
+            print(f"\nPoint-in-time data for {test_timestamp}:")
+            for tf, data in pit_data.items():
+                if not data.empty:
+                    print(f"  {tf}: {len(data)} periods, last close: {data['Close'].iloc[-1]:.2f}")
+                else:
+                    print(f"  {tf}: No data available")
+        print(resampler)
+        print(aligned_data)
+        return resampler, aligned_data
+
+    except FileNotFoundError:
+        print("Error: Could not find 'csv/tb/ETHEUR_5m.csv'")
+        print("Please ensure the file path is correct.")
+        return None, None
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return None, None
 
 
-if __name__ == "__main__":
-    demonstrate_resampling()
+process_data()
