@@ -585,6 +585,37 @@ def example_usage(resampled_data):
     return enhanced_data, summary
 
 
+def example_30min_4h_24h():
+    # Configuration for 30min base + 4H + 24H
+    config_30min_4h_24h = {
+        # 30min base indicators
+        'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
+        'rsi_period': 14,
+        'macd_params': {'fast': 12, 'slow': 26, 'signal': 9},
+
+        # 4H indicators (uses actual 4H closes)
+        'hourly_periods': {
+            'short': 6,  # 6 * 4H periods
+            'medium': 24,  # 24 * 4H periods
+            'long': 72  # 72 * 4H periods
+        },
+
+        # 24H/Daily indicators (uses actual daily closes)
+        'daily_periods': {
+            'short': 5,  # 5 actual days
+            'medium': 20,  # 20 actual days
+            'long': 50  # 50 actual days
+        }
+    }
+
+    # Your resampled data should have been created like:
+    # resampled_data = resampler.create_enhanced_dataset(
+    #     output_timeframe='30min',
+    #     higher_timeframes=['4H', '1D']  # Note: '1D' for 24H
+    # )
+
+    return config_30min_4h_24h
+
 data = pd.read_csv('resampled5mEE.csv')
 indicated, summ = example_usage(data)
 print(indicated)

@@ -426,5 +426,5 @@ time_frames = ['30min', '4H', '1D']
 resampler, enhanced_data = process_data(raw_data, freq, time_frames)
 print(resampler)
 print(enhanced_data)
-enhanced_data.to_csv('resampled5mEE.csv')
+enhanced_data.to_csv('resampled5mEE.csv', index=False)
 
