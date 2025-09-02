@@ -75,22 +75,43 @@ class FlexibleTechnicalIndicators:
         if len(self.data) < 2:
             return "unknown"
 
-        time_diff = self.data.index[1] - self.data.index[0]
-        total_seconds = time_diff.total_seconds()
+        try:
+            # Ensure index is datetime
+            if not isinstance(self.data.index, pd.DatetimeIndex):
+                print("Warning: Index is not DatetimeIndex, attempting conversion...")
+                self.data.index = pd.to_datetime(self.data.index)
 
-        if total_seconds < 60:
-            return f"{int(total_seconds)}s"
+            time_diff = self.data.index[1] - self.data.index[0]
 
-        minutes = total_seconds / 60
-        if minutes < 60:
-            return f"{int(minutes)}min" if minutes == int(minutes) else f"{minutes:.1f}min"
+            # Handle different time_diff types
+            if hasattr(time_diff, 'total_seconds'):
+                total_seconds = time_diff.total_seconds()
+            elif isinstance(time_diff, (int, float)):
+                # Assume nanoseconds and convert to seconds
+                total_seconds = time_diff / 1e9
+            else:
+                print(f"Warning: Unexpected time_diff type: {type(time_diff)}")
+                return "unknown"
 
-        hours = minutes / 60
-        if hours < 24:
-            return f"{int(hours)}H" if hours == int(hours) else f"{hours:.1f}H"
+            if total_seconds < 60:
+                return f"{int(total_seconds)}s"
 
-        days = hours / 24
-        return f"{int(days)}D"
+            minutes = total_seconds / 60
+            if minutes < 60:
+                return f"{int(minutes)}min" if minutes == int(minutes) else f"{minutes:.1f}min"
+
+            hours = minutes / 60
+            if hours < 24:
+                return f"{int(hours)}H" if hours == int(hours) else f"{hours:.1f}H"
+
+            days = hours / 24
+            return f"{int(days)}D"
+
+        except Exception as e:
+            print(f"Error detecting timeframe: {e}")
+            print(f"Index type: {type(self.data.index)}")
+            print(f"Index sample: {self.data.index[:3]}")
+            return "unknown"
 
     def _detect_higher_timeframes(self) -> List[str]:
         """Detect available higher timeframes from column names"""
@@ -127,38 +148,47 @@ class FlexibleTechnicalIndicators:
         # Use ta library for all standard indicators
         high, low, close, volume = data['High'], data['Low'], data['Close'], data['Volume']
 
-        # Trend indicators
-        for name, period in self.config['ema_periods'].items():
-            data[f'EMA_{name}_{period}'] = ta.trend.EMAIndicator(close, window=period).ema()
+        # Trend indicators - EMAs
+        if 'ema_periods' in self.config:
+            for name, period in self.config['ema_periods'].items():
+                data[f'EMA_{name}_{period}'] = ta.trend.EMAIndicator(close, window=period).ema_indicator()
 
-        for name, period in self.config['sma_periods'].items():
-            data[f'SMA_{name}_{period}'] = ta.trend.SMAIndicator(close, window=period).sma()
+        # SMAs with safety check
+        if 'sma_periods' in self.config:
+            for name, period in self.config['sma_periods'].items():
+                data[f'SMA_{name}_{period}'] = ta.trend.SMAIndicator(close, window=period).sma_indicator()
 
-        # MACD
-        macd = ta.trend.MACD(
-            close,
-            window_slow=self.config['macd_params']['slow'],
-            window_fast=self.config['macd_params']['fast'],
-            window_sign=self.config['macd_params']['signal']
-        )
-        data['MACD'] = macd.macd()
-        data['MACD_signal'] = macd.macd_signal()
-        data['MACD_histogram'] = macd.macd_diff()
+        # MACD with safety check
+        if 'macd_params' in self.config:
+            macd_params = self.config['macd_params']
+            macd = ta.trend.MACD(
+                close,
+                window_slow=macd_params.get('slow', 26),
+                window_fast=macd_params.get('fast', 12),
+                window_sign=macd_params.get('signal', 9)
+            )
+            data['MACD'] = macd.macd()
+            data['MACD_signal'] = macd.macd_signal()
+            data['MACD_histogram'] = macd.macd_diff()
 
-        # Momentum indicators
-        data['RSI'] = ta.momentum.RSIIndicator(close, window=self.config['rsi_period']).rsi()
+        # RSI with safety check
+        rsi_period = self.config.get('rsi_period', 14)
+        data['RSI'] = ta.momentum.RSIIndicator(close, window=rsi_period).rsi()
 
-        # Volatility indicators
-        bb = ta.volatility.BollingerBands(close, window=self.config['bb_period'], window_dev=self.config['bb_std'])
+        # Bollinger Bands with safety check
+        bb_period = self.config.get('bb_period', 20)
+        bb_std = self.config.get('bb_std', 2)
+        bb = ta.volatility.BollingerBands(close, window=bb_period, window_dev=bb_std)
         data['BB_upper'] = bb.bollinger_hband()
         data['BB_middle'] = bb.bollinger_mavg()
         data['BB_lower'] = bb.bollinger_lband()
 
-        data['ATR'] = ta.volatility.AverageTrueRange(high, low, close,
-                                                     window=self.config['atr_period']).average_true_range()
+        # ATR with safety check
+        atr_period = self.config.get('atr_period', 14)
+        data['ATR'] = ta.volatility.AverageTrueRange(high, low, close, window=atr_period).average_true_range()
 
         # Volume indicators
-        data['Volume_SMA'] = ta.volume.VolumeSMAIndicator(close, volume, window=20).volume_sma()
+        data['Volume_SMA'] = ta.trend.SMAIndicator(volume, window=20).sma_indicator()
         data['Volume_ratio'] = volume / data['Volume_SMA']
 
         return data
@@ -172,13 +202,14 @@ class FlexibleTechnicalIndicators:
         data['ATR_pct'] = data['ATR'] / data['Close'] * 100  # ATR as % of price
 
         # Normalized trend indicators (distances from moving averages)
-        for name, period in self.config['ema_periods'].items():
-            ema_col = f'EMA_{name}_{period}'
-            if ema_col in data.columns:
-                # Distance normalized by ATR (López de Prado style)
-                data[f'EMA_{name}_distance_atr'] = (data['Close'] - data[ema_col]) / data['ATR']
-                # Percentage distance
-                data[f'EMA_{name}_distance_pct'] = (data['Close'] / data[ema_col] - 1) * 100
+        if 'ema_periods' in self.config:
+            for name, period in self.config['ema_periods'].items():
+                ema_col = f'EMA_{name}_{period}'
+                if ema_col in data.columns:
+                    # Distance normalized by ATR (López de Prado style)
+                    data[f'EMA_{name}_distance_atr'] = (data['Close'] - data[ema_col]) / data['ATR']
+                    # Percentage distance
+                    data[f'EMA_{name}_distance_pct'] = (data['Close'] / data[ema_col] - 1) * 100
 
         # Volatility-normalized MACD (more stable)
         if 'MACD' in data.columns and 'ATR' in data.columns:
@@ -197,7 +228,7 @@ class FlexibleTechnicalIndicators:
             data['BB_width_pct'] = (bb_range / data['Close'] * 100).fillna(0)
 
         # Volume-price relationship (microstructure)
-        corr_window = self.config['correlation_window']
+        corr_window = self.config.get('correlation_window', 20)
         data['volume_price_corr'] = data['Volume'].rolling(corr_window).corr(data['Close'].pct_change())
 
         # Price impact efficiency
@@ -292,7 +323,7 @@ class FlexibleTechnicalIndicators:
         # EMAs using ta library
         for name, period in periods.items():
             if len(close) >= period:
-                indicators[f'{tf}_EMA_{name}'] = ta.trend.EMAIndicator(close, window=period).ema()
+                indicators[f'{tf}_EMA_{name}'] = ta.trend.EMAIndicator(close, window=period).ema_indicator()
 
         # RSI
         if len(close) >= 14:
@@ -312,9 +343,9 @@ class FlexibleTechnicalIndicators:
         # Volume indicators if available
         if 'Volume' in tf_data.columns and not tf_data['Volume'].isna().all():
             vol_window = min(20, len(tf_data) // 2)
-            indicators[f'{tf}_volume_sma'] = ta.volume.VolumeSMAIndicator(
-                close, tf_data['Volume'], window=vol_window
-            ).volume_sma()
+            indicators[f'{tf}_volume_sma'] = ta.trend.SMAIndicator(
+                tf_data['Volume'], window=vol_window
+            ).sma_indicator()
 
         return indicators
 
@@ -370,31 +401,34 @@ class FlexibleTechnicalIndicators:
         """Add specific features needed for event detection"""
 
         # Volume-Price Divergence features
-        config = self.config['event_config']
+        config = self.config.get('event_config', {})
 
         # Price momentum normalized by volatility
-        price_momentum = data['Close'].pct_change(config['vpd_price_lookback'])
+        price_lookback = config.get('vpd_price_lookback', 20)
+        price_momentum = data['Close'].pct_change(price_lookback)
         data['price_momentum_norm'] = price_momentum / data['ATR_pct'] * 100
 
         # Volume momentum (z-score)
-        vol_ma = data['Volume'].rolling(config['vpd_volume_lookback']).mean()
-        vol_std = data['Volume'].rolling(config['vpd_volume_lookback']).std()
+        vol_lookback = config.get('vpd_volume_lookback', 20)
+        vol_ma = data['Volume'].rolling(vol_lookback).mean()
+        vol_std = data['Volume'].rolling(vol_lookback).std()
         data['volume_zscore'] = (data['Volume'] - vol_ma) / vol_std.replace(0, np.nan)
 
         # Price-Volume correlation for divergence detection
-        data['price_vol_corr'] = data['price_momentum_norm'].rolling(config['vpd_price_lookback']).corr(
+        data['price_vol_corr'] = data['price_momentum_norm'].rolling(price_lookback).corr(
             data['volume_zscore']
         )
 
         # Volatility breakout score
-        vol_ma_long = data['vol_realized'].rolling(self.config['volatility_lookback']).mean()
-        vol_std_long = data['vol_realized'].rolling(self.config['volatility_lookback']).std()
+        vol_lookback_long = self.config.get('volatility_lookback', 50)
+        vol_ma_long = data['vol_realized'].rolling(vol_lookback_long).mean()
+        vol_std_long = data['vol_realized'].rolling(vol_lookback_long).std()
         data['vol_breakout_score'] = (data['vol_realized'] - vol_ma_long) / vol_std_long.replace(0, np.nan)
 
         # Return outlier features
         returns = data['returns']
-        lookback = config['return_lookback']
-        data['return_zscore_rolling'] = returns.rolling(lookback).apply(
+        return_lookback = config.get('return_lookback', 100)
+        data['return_zscore_rolling'] = returns.rolling(return_lookback).apply(
             lambda x: (x.iloc[-1] - x.mean()) / x.std() if x.std() > 0 else 0,
             raw=False
         )
@@ -415,7 +449,7 @@ class FlexibleTechnicalIndicators:
     def detect_events(self, data: pd.DataFrame) -> pd.DataFrame:
         """Detect events and add event columns"""
 
-        config = self.config['event_config']
+        config = self.config.get('event_config', {})
 
         # Initialize event columns
         data['vpd_volatility_event'] = False
@@ -424,19 +458,24 @@ class FlexibleTechnicalIndicators:
 
         # Volume-Price Divergence + Volatility events
         if all(col in data.columns for col in ['price_vol_corr', 'vol_breakout_score', 'volume_zscore']):
-            vpd_condition = abs(data['price_vol_corr']) < config['vpd_divergence_threshold']
-            vol_condition = abs(data['vol_breakout_score']) > config['vol_breakout_threshold']
+            divergence_threshold = config.get('vpd_divergence_threshold', 0.7)
+            vol_threshold = config.get('vol_breakout_threshold', 2.0)
+
+            vpd_condition = abs(data['price_vol_corr']) < divergence_threshold
+            vol_condition = abs(data['vol_breakout_score']) > vol_threshold
             strength_condition = (abs(data['volume_zscore']) > 1.5) | (abs(data['price_momentum_norm']) > 1.5)
 
             data['vpd_volatility_event'] = vpd_condition & vol_condition & strength_condition
 
         # Return Distribution Outlier events
         if 'return_zscore_rolling' in data.columns:
-            data['outlier_event'] = abs(data['return_zscore_rolling']) > config['outlier_threshold']
+            outlier_threshold = config.get('outlier_threshold', 2.5)
+            data['outlier_event'] = abs(data['return_zscore_rolling']) > outlier_threshold
 
         # Momentum Regime Change events
         if 'momentum_regime_score' in data.columns:
-            regime_changes = abs(data['momentum_regime_score'].diff()) > config['momentum_regime_threshold']
+            regime_threshold = config.get('momentum_regime_threshold', 0.3)
+            regime_changes = abs(data['momentum_regime_score'].diff()) > regime_threshold
             data['momentum_regime_event'] = regime_changes
 
         # Combined event indicators
@@ -554,7 +593,26 @@ def example_usage(resampled_data):
     """
     Example of how to use with different timeframe configurations
     """
+    config_30min_4h_24h = {
+        # 30min base indicators
+        'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
+        'rsi_period': 14,
+        'macd_params': {'fast': 12, 'slow': 26, 'signal': 9},
 
+        # 4H indicators (uses actual 4H closes)
+        'hourly_periods': {
+            'short': 6,  # 6 * 4H periods
+            'medium': 24,  # 24 * 4H periods
+            'long': 72  # 72 * 4H periods
+        },
+
+        # 24H/Daily indicators (uses actual daily closes)
+        'daily_periods': {
+            'short': 5,  # 5 actual days
+            'medium': 20,  # 20 actual days
+            'long': 50  # 50 actual days
+        }
+    }
     # Custom configuration example
     custom_config = {
         # For 2H instead of 4H, modify your resampler first, then:
@@ -580,41 +638,10 @@ def example_usage(resampled_data):
     print("Provides comprehensive event detection")
 
     # Usage:
-    enhanced_data, summary = create_enhanced_dataset(resampled_data, custom_config)
+    enhanced_data, summary = create_enhanced_dataset(resampled_data, config_30min_4h_24h)
 
     return enhanced_data, summary
 
-
-def example_30min_4h_24h():
-    # Configuration for 30min base + 4H + 24H
-    config_30min_4h_24h = {
-        # 30min base indicators
-        'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
-        'rsi_period': 14,
-        'macd_params': {'fast': 12, 'slow': 26, 'signal': 9},
-
-        # 4H indicators (uses actual 4H closes)
-        'hourly_periods': {
-            'short': 6,  # 6 * 4H periods
-            'medium': 24,  # 24 * 4H periods
-            'long': 72  # 72 * 4H periods
-        },
-
-        # 24H/Daily indicators (uses actual daily closes)
-        'daily_periods': {
-            'short': 5,  # 5 actual days
-            'medium': 20,  # 20 actual days
-            'long': 50  # 50 actual days
-        }
-    }
-
-    # Your resampled data should have been created like:
-    # resampled_data = resampler.create_enhanced_dataset(
-    #     output_timeframe='30min',
-    #     higher_timeframes=['4H', '1D']  # Note: '1D' for 24H
-    # )
-
-    return config_30min_4h_24h
 
 data = pd.read_csv('resampled5mEE.csv')
 indicated, summ = example_usage(data)
