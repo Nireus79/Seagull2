@@ -1,68 +1,34 @@
 import pandas as pd
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import warnings
+import numpy as np
 
 warnings.filterwarnings('ignore')
-"""Key Features:
-1. True Point-in-Time Alignment
-
-get_point_in_time_data(): Only returns data that would have been available at any given timestamp
-No look-ahead bias - higher timeframe data is strictly from completed periods
-
-2. Last Complete Period Method
-
-Instead of forward-filling, uses the last complete higher timeframe period
-Example: At 2:30 PM, uses 4H data from the period that ended at 12:00 PM, not the current incomplete one
-
-3. Proper Temporal Labeling
-
-Uses closed='left', label='right' for statistically correct interval handling
-Each bar represents data from its time period, labeled at the end
-
-4. Flexible Alignment Options
-
-Can create aligned datasets with multiple higher timeframes
-Maintains cache for efficiency when processing large datasets
-
-5. Built-in Validation
-
-Validates temporal integrity and checks for alignment issues
-Provides metrics to ensure data quality
-
-How to Use With Your Data:
-python# Load your ETH data
-eth5m = pd.read_csv('csv/tb/ETHEUR_5m.csv')
-eth5m.time = pd.to_datetime(eth5m.time, unit='ms')
-eth5m.set_index('time', inplace=True)
-
-# Initialize the resampler
-resampler = PointInTimeResampler(eth5m)
-
-# Create properly aligned multi-timeframe dataset
-aligned_data = resampler.create_aligned_dataset(
-    target_timeframe='30min',
-    higher_timeframes=['4H', '1D']
-)
-This eliminates the statistical issues from your original approach while maintaining all the multi-timeframe information
- you need. Ready to build indicators on this foundation?"""
+pd.set_option('display.max_columns', None)
 
 
-class PointInTimeResampler:
+class FlexiblePointInTimeResampler:
     """
-    A point-in-time resampling system that maintains statistical integrity
-    by ensuring no look-ahead bias in multi-timeframe analysis.
+    Flexible point-in-time resampling system that can work with any base timeframe
+    and create any combination of higher timeframes with configurable granularity.
     """
 
-    def __init__(self, base_data: pd.DataFrame):
+    def __init__(self, base_data: pd.DataFrame, base_timeframe: str = None):
         """
-        Initialize with base timeframe data (e.g., 5-minute bars)
+        Initialize with base timeframe data
 
         Args:
             base_data: DataFrame with OHLCV data, datetime index
+            base_timeframe: Optional explicit base timeframe (e.g., '1min', '5min')
+                          If None, will auto-detect from data
         """
         self.base_data = base_data.copy()
-        self.base_timeframe = self._detect_timeframe()
+        self.base_timeframe = base_timeframe or self._detect_timeframe()
         self.resampled_cache = {}
+
+        print(f"Initialized with base timeframe: {self.base_timeframe}")
+        print(f"Data shape: {base_data.shape}")
+        print(f"Date range: {base_data.index[0]} to {base_data.index[-1]}")
 
     def _detect_timeframe(self) -> str:
         """Detect the base timeframe from the data"""
@@ -70,27 +36,35 @@ class PointInTimeResampler:
             return "unknown"
 
         time_diff = self.base_data.index[1] - self.base_data.index[0]
-        minutes = time_diff.total_seconds() / 60
+        total_seconds = time_diff.total_seconds()
 
-        if minutes == 1:
-            return "1min"
-        elif minutes == 5:
-            return "5min"
-        elif minutes == 15:
-            return "15min"
-        else:
-            return f"{int(minutes)}min"
+        if total_seconds < 60:
+            return f"{int(total_seconds)}s"
+
+        minutes = total_seconds / 60
+        if minutes < 60:
+            if minutes == int(minutes):
+                return f"{int(minutes)}min"
+            else:
+                return f"{minutes:.1f}min"
+
+        hours = minutes / 60
+        if hours < 24:
+            if hours == int(hours):
+                return f"{int(hours)}H"
+            else:
+                return f"{hours:.1f}H"
+
+        days = hours / 24
+        return f"{int(days)}D"
 
     def resample_ohlcv(self, target_timeframe: str, offset: str = None) -> pd.DataFrame:
         """
         Resample OHLCV data to target timeframe with proper point-in-time alignment
 
         Args:
-            target_timeframe: Target timeframe (e.g., '30min', '4H', '1D')
-            offset: Optional offset for alignment (e.g., '30min' to start at :30)
-
-        Returns:
-            Resampled DataFrame with proper temporal alignment
+            target_timeframe: Target timeframe (e.g., '1min', '5min', '30min', '4H', '1D')
+            offset: Optional offset for alignment
         """
         cache_key = f"{target_timeframe}_{offset}"
 
@@ -106,246 +80,350 @@ class PointInTimeResampler:
             'Volume': 'sum'
         }
 
-        # Add any additional columns that should be summed or averaged
+        # Handle additional columns intelligently
         for col in self.base_data.columns:
             if col not in ohlcv_agg:
-                if 'volume' in col.lower() or 'vol' in col.lower():
+                col_lower = col.lower()
+                if any(x in col_lower for x in ['volume', 'vol', 'amount', 'turnover']):
                     ohlcv_agg[col] = 'sum'
-                elif col in ['t', 'timestamp']:
+                elif any(x in col_lower for x in ['count', 'trades', 'ticks']):
+                    ohlcv_agg[col] = 'sum'
+                elif col in ['t', 'timestamp', 'time']:
+                    ohlcv_agg[col] = 'last'
+                elif any(x in col_lower for x in ['price', 'close', 'open', 'high', 'low']):
                     ohlcv_agg[col] = 'last'
                 else:
-                    ohlcv_agg[col] = 'last'  # Default to last value
+                    ohlcv_agg[col] = 'last'  # Default behavior
 
-        # Create resampler with proper offset
+        # Create resampler
         resampler = self.base_data.resample(
             target_timeframe,
             offset=offset,
-            closed='left',  # Left-closed intervals for proper alignment
-            label='right'  # Label with the end of the interval
+            closed='left',
+            label='right'
         )
 
         resampled = resampler.agg(ohlcv_agg)
-
-        # Cache the result
         self.resampled_cache[cache_key] = resampled.copy()
-
         return resampled
 
-    def get_point_in_time_data(self,
-                               timestamp: pd.Timestamp,
-                               timeframes: List[str],
-                               lookback_periods: Dict[str, int] = None) -> Dict[str, pd.DataFrame]:
+    def create_enhanced_dataset(self,
+                                output_timeframe: str = None,
+                                higher_timeframes: List[str] = None,
+                                include_features: bool = True,
+                                feature_types: List[str] = None) -> pd.DataFrame:
         """
-        Get point-in-time data for multiple timeframes at a specific timestamp.
-        Only returns data that would have been available at that exact timestamp.
+        Create dataset with configurable output timeframe and higher timeframe context
 
         Args:
-            timestamp: The point in time for which to get data
-            timeframes: List of timeframes to include (e.g., ['30min', '4H', '1D'])
-            lookback_periods: Number of periods to look back for each timeframe
+            output_timeframe: Timeframe for output rows (e.g., '1min', '5min', '30min')
+                            If None, uses base timeframe
+            higher_timeframes: List of higher timeframes to include as features (REQUIRED)
+            include_features: Whether to add derived features
+            feature_types: Types of features to include
+                          ['basic', 'returns', 'distances', 'ranges', 'positions', 'momentum']
 
         Returns:
-            Dictionary with timeframe as key and DataFrame as value
+            Enhanced dataset with specified granularity + higher TF context
         """
-        if lookback_periods is None:
-            lookback_periods = {tf: 100 for tf in timeframes}
+        if output_timeframe is None:
+            output_timeframe = self.base_timeframe
 
-        result = {}
+        if higher_timeframes is None:
+            raise ValueError("higher_timeframes must be specified (e.g., ['30min', '4H', '1D'])")
 
-        for tf in timeframes:
-            # Get resampled data for this timeframe
-            resampled = self.resample_ohlcv(tf)
+        if feature_types is None:
+            feature_types = ['basic', 'returns', 'distances', 'ranges']
 
-            # Find the last complete period before the given timestamp
-            available_data = resampled[resampled.index < timestamp]
+        print(f"Creating dataset with:")
+        print(f"  Output timeframe: {output_timeframe}")
+        print(f"  Higher timeframes: {higher_timeframes}")
+        print(f"  Feature types: {feature_types}")
 
-            if len(available_data) == 0:
-                result[tf] = pd.DataFrame()
-                continue
+        # Get base data at output timeframe
+        if output_timeframe == self.base_timeframe:
+            enhanced_data = self.base_data.copy()
+        else:
+            enhanced_data = self.resample_ohlcv(output_timeframe)
 
-            # Get the specified number of lookback periods
-            periods = lookback_periods.get(tf, 100)
-            result[tf] = available_data.tail(periods).copy()
+        print(f"  Base data shape: {enhanced_data.shape}")
 
-        return result
-
-    def create_aligned_dataset(self,
-                               target_timeframe: str = '30min',
-                               higher_timeframes: List[str] = ['4H', '1D'],
-                               alignment_method: str = 'last_complete') -> pd.DataFrame:
-        """
-        Create a dataset with properly aligned multi-timeframe data.
-        Each row represents a target_timeframe period with corresponding
-        higher timeframe data that was available at that point in time.
-
-        Args:
-            target_timeframe: The main timeframe for predictions
-            higher_timeframes: List of higher timeframes to include as features
-            alignment_method: How to align data ('last_complete', 'interpolate')
-
-        Returns:
-            Aligned dataset with multi-timeframe data
-        """
-        # Get the target timeframe data
-        target_data = self.resample_ohlcv(target_timeframe)
-
-        # Create aligned dataset starting with target timeframe
-        aligned_data = target_data.copy()
-
+        # Add higher timeframe context
         for higher_tf in higher_timeframes:
+            print(f"  Processing {higher_tf}...")
+
             higher_data = self.resample_ohlcv(higher_tf)
+            higher_features = self._create_higher_tf_features(
+                enhanced_data.index,
+                higher_data,
+                higher_tf,
+                feature_types
+            )
 
-            if alignment_method == 'last_complete':
-                # For each target period, find the last complete higher timeframe period
-                aligned_higher = self._align_last_complete(
-                    target_data.index,
-                    higher_data,
-                    higher_tf
-                )
-            else:
-                # Forward fill method (less statistically rigorous)
-                aligned_higher = higher_data.reindex(
-                    target_data.index,
-                    method='ffill'
-                )
+            enhanced_data = enhanced_data.join(higher_features)
 
-            # Rename columns to indicate source timeframe
-            column_mapping = {
-                col: f"{higher_tf}_{col}"
-                for col in aligned_higher.columns
-                if col in ['Open', 'High', 'Low', 'Close', 'Volume']
-            }
-            aligned_higher = aligned_higher.rename(columns=column_mapping)
+        if include_features and 'basic' not in feature_types:
+            enhanced_data = self._add_derived_features(
+                enhanced_data,
+                higher_timeframes,
+                feature_types
+            )
 
-            # Merge with target data
-            aligned_data = aligned_data.join(aligned_higher[column_mapping.values()])
+        print(f"  Final dataset shape: {enhanced_data.shape}")
+        return enhanced_data
 
-        return aligned_data
-
-    def _align_last_complete(self,
-                             target_index: pd.DatetimeIndex,
-                             higher_data: pd.DataFrame,
-                             higher_tf: str) -> pd.DataFrame:
+    def _get_smart_higher_timeframes(self, output_timeframe: str) -> List[str]:
         """
-        Align higher timeframe data using last complete period method
+        Generate smart default higher timeframes based on output timeframe
         """
-        aligned_data = pd.DataFrame(index=target_index, columns=higher_data.columns)
+        # Define timeframe hierarchy in minutes
+        tf_minutes = {
+            '1min': 1, '5min': 5, '15min': 15, '30min': 30,
+            '1H': 60, '2H': 120, '4H': 240, '6H': 360, '8H': 480, '12H': 720,
+            '1D': 1440, '3D': 4320, '1W': 10080
+        }
 
-        for timestamp in target_index:
-            # Find the last complete higher timeframe period before this timestamp
+        output_mins = tf_minutes.get(output_timeframe, 5)  # Default to 5 if unknown
+
+        # Select higher timeframes that are meaningful multiples
+        candidates = []
+        for tf, mins in tf_minutes.items():
+            if mins > output_mins:
+                # Include timeframes that are reasonable multiples
+                ratio = mins / output_mins
+                if ratio >= 2 and (ratio <= 50 or tf in ['1D', '1W']):
+                    candidates.append((tf, mins))
+
+        # Sort by minutes and select up to 4 meaningful timeframes
+        candidates.sort(key=lambda x: x[1])
+
+        # Smart selection logic
+        selected = []
+        if output_mins <= 5:  # 1min, 5min
+            selected = ['15min', '1H', '4H', '1D']
+        elif output_mins <= 30:  # 15min, 30min
+            selected = ['1H', '4H', '1D']
+        elif output_mins <= 240:  # 1H, 2H, 4H
+            selected = ['1D', '3D', '1W']
+        else:  # 1D and above
+            selected = ['3D', '1W']
+
+        # Filter to only include available candidates
+        available = [tf for tf, _ in candidates]
+        selected = [tf for tf in selected if tf in available]
+
+        return selected[:4]  # Limit to 4 higher timeframes
+
+    def _create_higher_tf_features(self,
+                                   base_index: pd.DatetimeIndex,
+                                   higher_data: pd.DataFrame,
+                                   timeframe: str,
+                                   feature_types: List[str]) -> pd.DataFrame:
+        """
+        Create higher timeframe features for each base timeframe period
+        """
+        feature_columns = []
+
+        # Basic OHLCV features
+        if 'basic' in feature_types:
+            basic_features = ['Open', 'High', 'Low', 'Close', 'Volume']
+            for feature in basic_features:
+                if feature in higher_data.columns:
+                    feature_columns.append(f"{timeframe}_{feature}")
+
+        # Initialize feature dataframe
+        features_df = pd.DataFrame(
+            index=base_index,
+            columns=feature_columns
+        )
+
+        # Populate features using point-in-time alignment
+        for timestamp in base_index:
             available_periods = higher_data[higher_data.index < timestamp]
 
             if len(available_periods) > 0:
                 last_complete = available_periods.iloc[-1]
-                aligned_data.loc[timestamp] = last_complete
 
-        return aligned_data
+                # Add basic features
+                if 'basic' in feature_types:
+                    for feature in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                        if feature in higher_data.columns:
+                            col_name = f"{timeframe}_{feature}"
+                            if col_name in features_df.columns:
+                                features_df.loc[timestamp, col_name] = last_complete[feature]
 
-    def validate_alignment(self, dataset: pd.DataFrame) -> Dict[str, any]:
+        return features_df
+
+    def _add_derived_features(self,
+                              data: pd.DataFrame,
+                              timeframes: List[str],
+                              feature_types: List[str]) -> pd.DataFrame:
         """
-        Validate that the aligned dataset maintains temporal integrity
-
-        Returns:
-            Dictionary with validation metrics
+        Add derived features based on specified types
         """
-        validation_results = {
-            'total_rows': len(dataset),
-            'null_percentage': dataset.isnull().sum() / len(dataset),
-            'temporal_gaps': [],
-            'look_ahead_violations': 0
+        enhanced_data = data.copy()
+
+        for tf in timeframes:
+            tf_close = f"{tf}_Close"
+            tf_open = f"{tf}_Open"
+            tf_high = f"{tf}_High"
+            tf_low = f"{tf}_Low"
+
+            # Returns
+            if 'returns' in feature_types and tf_close in enhanced_data.columns and tf_open in enhanced_data.columns:
+                enhanced_data[f"{tf}_Return"] = (
+                                                        enhanced_data[tf_close] / enhanced_data[tf_open] - 1
+                                                ) * 100
+
+            # Distance from higher TF levels
+            if 'distances' in feature_types and tf_close in enhanced_data.columns and 'Close' in enhanced_data.columns:
+                enhanced_data[f"Distance_from_{tf}"] = (
+                                                               enhanced_data['Close'] / enhanced_data[tf_close] - 1
+                                                       ) * 100
+
+            # Ranges and volatility
+            if 'ranges' in feature_types and tf_high in enhanced_data.columns and tf_low in enhanced_data.columns:
+                enhanced_data[f"{tf}_Range_Pct"] = (
+                                                           (enhanced_data[tf_high] - enhanced_data[tf_low]) /
+                                                           enhanced_data[tf_close]
+                                                   ) * 100
+
+            # Position within range
+            if 'positions' in feature_types and all(
+                    col in enhanced_data.columns for col in [tf_high, tf_low, tf_close, 'Close']):
+                range_size = enhanced_data[tf_high] - enhanced_data[tf_low]
+                position = enhanced_data['Close'] - enhanced_data[tf_low]
+                enhanced_data[f"Position_in_{tf}_Range"] = (position / range_size) * 100
+
+            # Momentum features
+            if 'momentum' in feature_types and tf_close in enhanced_data.columns and 'Close' in enhanced_data.columns:
+                # Current vs higher TF momentum alignment
+                enhanced_data[f"{tf}_Momentum_Align"] = np.where(
+                    (enhanced_data['Close'] > enhanced_data['Close'].shift(1)) &
+                    (enhanced_data[tf_close] > enhanced_data[tf_close].shift(1)), 1,
+                    np.where(
+                        (enhanced_data['Close'] < enhanced_data['Close'].shift(1)) &
+                        (enhanced_data[tf_close] < enhanced_data[tf_close].shift(1)), -1, 0
+                    )
+                )
+
+        return enhanced_data
+
+    def get_timeframe_info(self) -> Dict:
+        """
+        Get basic information about the resampler
+        """
+        return {
+            'base_timeframe': self.base_timeframe,
+            'base_data_shape': self.base_data.shape,
+            'date_range': (self.base_data.index[0], self.base_data.index[-1]),
+            'available_feature_types': ['basic', 'returns', 'distances', 'ranges', 'positions', 'momentum']
         }
 
-        # Check for temporal gaps
-        time_diffs = dataset.index.to_series().diff()
-        expected_diff = time_diffs.mode().iloc[0]
-        gaps = time_diffs[time_diffs != expected_diff]
-        validation_results['temporal_gaps'] = len(gaps)
+    def _timeframe_to_minutes(self, timeframe: str) -> int:
+        """Convert timeframe string to minutes"""
+        tf_map = {
+            '1min': 1, '5min': 5, '15min': 15, '30min': 30,
+            '1H': 60, '2H': 120, '4H': 240, '6H': 360, '8H': 480, '12H': 720,
+            '1D': 1440, '3D': 4320, '1W': 10080
+        }
+        return tf_map.get(timeframe, 5)  # Default to 5 minutes
 
-        # Additional validation can be added here
+    def compare_configurations(self, configs: List[Dict]) -> None:
+        """
+        Compare different configuration setups
 
-        return validation_results
+        Args:
+            configs: List of configuration dictionaries with keys:
+                    {'output_timeframe', 'higher_timeframes', 'name'}
+        """
+        print("=== CONFIGURATION COMPARISON ===\n")
+
+        results = []
+        for config in configs:
+            name = config.get('name', 'Unnamed')
+            output_tf = config.get('output_timeframe', self.base_timeframe)
+            higher_tfs = config.get('higher_timeframes', self._get_smart_higher_timeframes(output_tf))
+
+            dataset = self.create_enhanced_dataset(
+                output_timeframe=output_tf,
+                higher_timeframes=higher_tfs,
+                include_features=False  # Skip features for comparison speed
+            )
+
+            results.append({
+                'name': name,
+                'output_timeframe': output_tf,
+                'rows': len(dataset),
+                'columns': len(dataset.columns),
+                'higher_timeframes': higher_tfs
+            })
+
+        # Display comparison
+        for result in results:
+            print(f"{result['name']}:")
+            print(f"  Output timeframe: {result['output_timeframe']}")
+            print(f"  Higher timeframes: {result['higher_timeframes']}")
+            print(f"  Dataset size: {result['rows']} rows × {result['columns']} columns")
+            print(f"  Data points: {result['rows']:,}")
+            print()
 
 
-# Usage example with actual ETH data
-def process_data():
+# Usage with your actual ETH data
+def process_data(raw_data, frequency, frames):
     """
-    Process actual ETH 5-minute data using the point-in-time resampling system
+    Process your actual ETH 5-minute data with flexible configurations
     """
-    # Load actual ETH data
     try:
-        raw = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')
+        # Load your ETH data
+        raw = raw_data
 
-        # Clean up the data as in your original script
+        # Clean up the data
         raw['t'] = raw.time
         raw.time = pd.to_datetime(raw.time, unit='ms')
         raw.set_index('time', inplace=True)
 
-        # Drop unnamed columns if they exist
         if 'Unnamed: 0' in raw.columns:
             raw.drop(columns=['Unnamed: 0'], axis=1, inplace=True)
 
-        print(f"Loaded raw data: {raw.shape}")
-        print(f"Date range: {raw.index.min()} to {raw.index.max()}")
-        print(f"Columns: {list(raw.columns)}")
+        print(f"Loaded data: {raw.shape}")
 
-        # Initialize the resampler
-        resampler = PointInTimeResampler(raw)
+        # Initialize flexible resampler
+        resampler = FlexiblePointInTimeResampler(raw, base_timeframe='5min')
 
-        print(f"Base timeframe detected: {resampler.base_timeframe}")
+        # Show basic info
+        info = resampler.get_timeframe_info()
+        print(f"Base timeframe: {info['base_timeframe']}")
+        print(f"Data shape: {info['base_data_shape']}")
 
-        # Create aligned dataset with proper point-in-time alignment
-        aligned_data = resampler.create_aligned_dataset(
-            target_timeframe='30min',
-            higher_timeframes=['4H', '1D']
+        # Create enhanced dataset - YOU specify exactly what you want
+        enhanced_data = resampler.create_enhanced_dataset(
+            output_timeframe=frequency,  # Change to whatever you want
+            higher_timeframes=time_frames,  # YOU specify these
+            include_features=True,
+            feature_types=['basic', 'returns', 'distances', 'ranges']
         )
 
-        print(f"Aligned data shape: {aligned_data.shape}")
-        print("\nAligned data columns:")
-        for col in aligned_data.columns:
-            print(f"  {col}")
+        print(f"\nEnhanced dataset: {enhanced_data.shape}")
+        print(f"Sample data (last 3 rows):")
+        print(enhanced_data[['Close', '30min_Close', '4H_Close', '1D_Close']].tail(3))
 
-        # Show sample of aligned data
-        print(f"\nSample of aligned data (last 5 rows):")
-        print(aligned_data.tail())
-
-        # Validate alignment
-        validation = resampler.validate_alignment(aligned_data)
-        print(f"\nValidation results:")
-        print(f"  Total rows: {validation['total_rows']}")
-        print(f"  Temporal gaps: {validation['temporal_gaps']}")
-
-        # Show null percentages for higher timeframe data
-        print(f"\nNull percentages by column:")
-        for col, null_pct in validation['null_percentage'].items():
-            if null_pct > 0:
-                print(f"  {col}: {null_pct:.2%}")
-
-        # Demonstrate point-in-time data access for a recent timestamp
-        if len(aligned_data) > 100:
-            test_timestamp = aligned_data.index[-50]  # Pick a point near the end but not the very end
-            pit_data = resampler.get_point_in_time_data(
-                timestamp=test_timestamp,
-                timeframes=['30min', '4H', '1D'],
-                lookback_periods={'30min': 10, '4H': 5, '1D': 3}
-            )
-
-            print(f"\nPoint-in-time data for {test_timestamp}:")
-            for tf, data in pit_data.items():
-                if not data.empty:
-                    print(f"  {tf}: {len(data)} periods, last close: {data['Close'].iloc[-1]:.2f}")
-                else:
-                    print(f"  {tf}: No data available")
-        print(resampler)
-        print(aligned_data)
-        return resampler, aligned_data
+        return resampler, enhanced_data
 
     except FileNotFoundError:
-        print("Error: Could not find 'csv/tb/ETHEUR_5m.csv'")
-        print("Please ensure the file path is correct.")
+        print("Error: Could not find data file at specified path")
+        print("Please check the file path")
         return None, None
     except Exception as e:
-        print(f"Error loading data: {e}")
+        print(f"Error processing data: {e}")
         return None, None
 
 
-# process_data()
+raw_data = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')
+freq = '5min'
+time_frames = ['30min', '4H', '1D']
+# Run with your ETH data
+resampler, enhanced_data = process_data(raw_data, freq, time_frames)
+print(resampler)
+print(enhanced_data)
+
