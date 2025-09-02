@@ -43,7 +43,9 @@ aligned_data = resampler.create_aligned_dataset(
     target_timeframe='30min',
     higher_timeframes=['4H', '1D']
 )
-This eliminates the statistical issues from your original approach while maintaining all the multi-timeframe information you need. Ready to build indicators on this foundation?"""
+This eliminates the statistical issues from your original approach while maintaining all the multi-timeframe information
+ you need. Ready to build indicators on this foundation?"""
+
 
 class PointInTimeResampler:
     """
@@ -346,7 +348,7 @@ def process_data():
         return None, None
 
 
-process_data()
+# process_data()
 # EVENTS ---------------------------------------------------------------------------------------------------------------
 """Volume-Price Events
 1. Volume-Price Divergence Events
