@@ -3,11 +3,10 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional, Union
 from scipy import stats
 import warnings
-
-# Technical Analysis library
 import ta
 
 warnings.filterwarnings('ignore')
+pd.set_option('display.max_columns', None)
 
 
 class FlexibleTechnicalIndicators:
@@ -25,6 +24,8 @@ class FlexibleTechnicalIndicators:
             config: Configuration for indicators and events
         """
         self.data = resampled_data.copy()
+        self.data['t'] = pd.to_datetime(self.data['t'], unit='ms')
+        self.data = self.data.set_index('t')
         self.config = config or self._default_config()
 
         # Detect available timeframes
@@ -611,7 +612,9 @@ def example_usage(resampled_data):
             'short': 5,  # 5 actual days
             'medium': 20,  # 20 actual days
             'long': 50  # 50 actual days
-        }
+        },
+
+        'intraday_periods': {'short': 12, 'medium': 26, 'long': 50},
     }
     # Custom configuration example
     custom_config = {

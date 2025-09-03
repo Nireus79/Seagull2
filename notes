@@ -233,3 +233,108 @@ Stationary for ML models
 Theoretically grounded in both frameworks
 Robust across market regimes
 Computationally efficient"""
+
+"""According to Marcos Lopez de Prado and as seen on Pradofun script, when a statistical event occurs
+ in a timeline of historical data, a triple barrier is applied, vertical after 24 hours
+  and two symmetrical or asymmetrical horizontal barriers (ptsl profit take stop loss) to note the movement of price
+   for the next 24 hours in the data frame (A new column is added). If price crosses first the upper horizontal,
+   event is noted as 1, meaning profitable. If  price crosses lower horizontal or vertical,
+    event is noted as 0 (not proffitable).
+    Those notes are used as y axis for the later training of
+    binary classification models predicting similar real statistical events. Question 1,
+    Is it possible to implement methods doing the same within indicators script or is it
+    better a new script to be created, taking results of indicators and add the column? Some function taking by
+    argument one of the events of the data frame produced by indicators script and note in the same row how price
+    was moved in the future by adding a column? Question 2 how ptsl levels can be dynamically calculated and set?
+    Question 3 How vertical barrier length can be researched or dynamically adjusted without overfitting? 
+Question 1: Implementation Location
+I recommend creating a separate script rather than integrating it into the indicators script. Here's why:
+Advantages of a separate script:
+
+Separation of concerns: Indicators script focuses on feature engineering, labeling script focuses on target generation
+Modularity: You can easily swap different labeling methods or use the same indicators with different labeling strategies
+Performance: Event detection and barrier calculations can be computationally expensive - keeping them separate allows for optimization
+Flexibility: Different events might need different barrier configurations
+Testing: Easier to test and validate labeling logic independently
+
+The separate script would:
+
+Take the enhanced dataframe from indicators script as input
+For each detected event (where any_event == True), apply triple barrier method
+Add columns like barrier_touched, barrier_type, holding_period, return_achieved
+Return the same dataframe with additional labeling columns
+
+Question 2: Dynamic PTSL Level Calculation
+López de Prado suggests several approaches for dynamic barrier setting:
+Volatility-based approaches:
+
+Use ATR (Average True Range) multiplied by a factor (e.g., 2x ATR for both barriers)
+Use realized volatility over a rolling window
+Use your existing vol_realized or ATR_pct columns from indicators
+
+Event-specific approaches:
+
+Different barrier widths for different event types (VPD events might need wider barriers than momentum events)
+Scale barriers based on event "strength" (e.g., higher volume z-scores get wider barriers)
+
+Market regime approaches:
+
+Wider barriers during high volatility periods
+Narrower barriers during trending markets vs ranging markets
+Use your vol_regime_ indicators to adjust barrier width
+
+Adaptive approaches:
+
+Start with initial barrier width and adjust based on recent barrier hit statistics
+If too many events hit vertical barrier, widen horizontal barriers
+If too many hit horizontal barriers quickly, narrow them
+
+Question 3: Vertical Barrier Research and Dynamic Adjustment
+Research approaches for optimal holding period:
+Statistical methods:
+
+Half-life analysis: Calculate how long it takes for autocorrelations to decay to 50%
+Mean reversion timing: Analyze how long price dislocations typically take to revert
+Information decay: Study how long your features remain predictive
+
+Event-specific analysis:
+
+Different event types may have different optimal holding periods
+VPD events might resolve faster than momentum regime changes
+Analyze historical data to see typical resolution times for each event type
+
+Market microstructure considerations:
+
+Intraday events might resolve within hours
+Daily events might need 3-10 days
+Consider market session boundaries (don't cross weekends for short-term events)
+
+Dynamic adjustment without overfitting:
+Walk-forward approach:
+
+Use expanding window to calculate optimal barriers
+Recalibrate barriers every N periods using only past data
+Never use future information
+
+Cross-validation by time:
+
+Split data into multiple time periods
+Test different barrier combinations on out-of-sample periods
+Use ensemble of different barrier settings
+
+Robustness testing:
+
+Test barrier sensitivity across different market regimes
+Ensure consistent performance across different volatility environments
+Use bootstrapping to test stability of optimal parameters
+
+Practical constraints:
+
+Set minimum/maximum barrier widths based on trading costs
+Consider liquidity constraints (wider barriers during low liquidity)
+Account for overnight gaps and market closures
+
+The key insight from López de Prado
+is that barriers should be economically meaningful rather than statistically optimized.
+They should reflect realistic trading constraints and market dynamics
+rather than being fitted to maximize historical performance."""

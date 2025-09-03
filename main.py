@@ -1,3 +1,3 @@
 # import data_resampling
-# import event_detection
-import indicators
+# import indicators
+import labeling
