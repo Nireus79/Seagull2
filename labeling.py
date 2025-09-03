@@ -112,7 +112,18 @@ class TripleBarrierLabeling:
             config: Configuration for barrier settings and labeling
         """
         self.data = data.copy()
-        self.config = config or self._default_config()
+
+        # Fix: Ensure config is properly initialized by merging with defaults
+        default_config = self._default_config()
+        if config:
+            # Merge custom config with defaults
+            for key, value in config.items():
+                if isinstance(value, dict) and key in default_config and isinstance(default_config[key], dict):
+                    default_config[key].update(value)
+                else:
+                    default_config[key] = value
+
+        self.config = default_config
 
         # Validate required columns
         self._validate_data()
@@ -205,13 +216,17 @@ class TripleBarrierLabeling:
     def get_events_to_label(self) -> pd.Series:
         """Get events that should be labeled based on configuration"""
 
-        if self.config['use_any_event'] and 'any_event' in self.data.columns:
+        # Fix: Add safety check for config keys
+        use_any_event = self.config.get('use_any_event', True)
+        event_types = self.config.get('event_types', [])
+
+        if use_any_event and 'any_event' in self.data.columns:
             return self.data.index[self.data['any_event'] == True]
 
         # Combine specified event types
         event_mask = pd.Series(False, index=self.data.index)
 
-        for event_type in self.config['event_types']:
+        for event_type in event_types:
             if event_type in self.data.columns:
                 event_mask |= (self.data[event_type] == True)
 
@@ -567,17 +582,13 @@ def create_labeled_dataset(
         Tuple of (labeled_dataset, summary_statistics)
     """
 
-    # Build configuration
-    config = {}
-    if custom_config:
-        config.update(custom_config)
+    config = custom_config.copy() if custom_config else {}
 
     if event_types:
         config['event_types'] = event_types
 
     config['barrier_mode'] = barrier_mode
 
-    # Initialize labeling system
     labeling_system = TripleBarrierLabeling(enhanced_data, config)
 
     # Create labeled dataset
