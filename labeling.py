@@ -8,36 +8,22 @@ from functools import partial
 from indicators import indicated
 
 warnings.filterwarnings('ignore')
-pd.set_option('display.max_columns', None)
+# pd.set_option('display.max_columns', None)
 
 
 class TripleBarrierLabeling:
     """
-    Triple Barrier Labeling System based on López de Prado's methodology.
-    Takes enhanced dataset from indicators script and adds labeling columns.
+    Simplified Triple Barrier Labeling System
     """
 
-    def __init__(self, data: pd.DataFrame, config: Dict = None):
+    def __init__(self, data: pd.DataFrame):
         """
         Initialize with enhanced dataset from indicators script
 
         Args:
             data: DataFrame from indicators.py with events and technical indicators
-            config: Configuration for barrier settings and labeling
         """
         self.data = data.copy()
-
-        # Fix: Ensure config is properly initialized by merging with defaults
-        default_config = self._default_config()
-        if config:
-            # Merge custom config with defaults
-            for key, value in config.items():
-                if isinstance(value, dict) and key in default_config and isinstance(default_config[key], dict):
-                    default_config[key].update(value)
-                else:
-                    default_config[key] = value
-
-        self.config = default_config
 
         # Validate required columns
         self._validate_data()
@@ -45,60 +31,6 @@ class TripleBarrierLabeling:
         # Detect available event types
         self.available_events = self._detect_available_events()
         print(f"Available event types: {self.available_events}")
-
-    def _default_config(self) -> Dict:
-        """Default configuration for triple barrier labeling"""
-        return {
-            # Event selection
-            'event_types': ['vpd_volatility_event', 'outlier_event', 'momentum_regime_event'],
-            'use_any_event': True,  # Use combined event column
-
-            # Barrier type selection
-            'barrier_mode': 'dynamic',  # 'static', 'dynamic', 'adaptive'
-
-            # Static barrier settings (used when barrier_mode='static')
-            'static_barriers': {
-                'profit_take': 0.02,  # 2% profit take
-                'stop_loss': 0.015,  # 1.5% stop loss
-                'vertical_days': 1.0  # 1 day holding period
-            },
-
-            # Dynamic barrier settings (used when barrier_mode='dynamic')
-            'dynamic_barriers': {
-                'pt_atr_multiplier': 2.0,  # Profit take = 2x ATR
-                'sl_atr_multiplier': 1.5,  # Stop loss = 1.5x ATR
-                'volatility_column': 'ATR_pct',  # Column to use for dynamic sizing
-                'vertical_vol_multiplier': 20,  # Vertical barrier = 20x volatility-based periods
-                'min_holding_hours': 2,  # Minimum holding period
-                'max_holding_days': 5  # Maximum holding period
-            },
-
-            # Adaptive barrier settings (used when barrier_mode='adaptive')
-            'adaptive_barriers': {
-                'base_pt_multiplier': 2.0,
-                'base_sl_multiplier': 1.5,
-                'adaptation_window': 100,  # Lookback for adaptation
-                'target_hit_rate': 0.4,  # Target rate for horizontal barrier hits
-                'adaptation_factor': 0.1  # Speed of adaptation
-            },
-
-            # Event-specific barrier adjustments
-            'event_specific_multipliers': {
-                'vpd_volatility_event': {'pt': 1.2, 'sl': 1.1},  # Wider barriers for VPD events
-                'outlier_event': {'pt': 0.8, 'sl': 0.9},  # Tighter barriers for outliers
-                'momentum_regime_event': {'pt': 1.5, 'sl': 1.3},  # Much wider for regime changes
-            },
-
-            # Processing settings
-            'min_return_threshold': 0.001,  # Minimum return to consider event
-            'parallel_processing': False,
-            'num_threads': 4,
-            'batch_size': 1000,
-
-            # Output settings
-            'add_detailed_info': True,  # Add columns with detailed barrier info
-            'calculate_returns': True  # Calculate actual returns achieved
-        }
 
     def _validate_data(self):
         """Validate required columns are present"""
@@ -117,45 +49,97 @@ class TripleBarrierLabeling:
 
     def _detect_available_events(self) -> List[str]:
         """Detect available event columns"""
-        event_patterns = ['_event', 'any_event', 'event_type']
+        event_patterns = ['_event', 'any_event']
         available = []
 
         for col in self.data.columns:
             if any(pattern in col for pattern in event_patterns):
-                if col not in ['event_type']:  # event_type is categorical, not boolean
+                if col != 'event_type':  # event_type is categorical, not boolean
                     available.append(col)
 
         return available
 
-    def get_events_to_label(self) -> pd.Series:
-        """Get events that should be labeled based on configuration"""
+    def get_events_to_label(self, event_columns: Union[str, List[str], None] = None) -> pd.Series:
+        """
+        Get events that should be labeled - SIMPLIFIED VERSION
 
-        # Fix: Add safety check for config keys
-        use_any_event = self.config.get('use_any_event', True)
-        event_types = self.config.get('event_types', [])
+        Args:
+            event_columns:
+                - None: Use 'any_event' if available, otherwise all event columns
+                - str: Use specific event column (e.g., 'outlier_event')
+                - List[str]: Combine multiple event columns
+        """
 
-        if use_any_event and 'any_event' in self.data.columns:
-            return self.data.index[self.data['any_event'] == True]
+        if event_columns is None:
+            # Default behavior: use any_event if available
+            if 'any_event' in self.data.columns:
+                print("Using 'any_event' column")
+                return self.data.index[self.data['any_event'] == True]
+            else:
+                # Fallback: combine all available event columns
+                print("No 'any_event' found, combining all event columns")
+                event_columns = [col for col in self.available_events if col != 'any_event']
+
+        # Convert single string to list
+        if isinstance(event_columns, str):
+            event_columns = [event_columns]
 
         # Combine specified event types
         event_mask = pd.Series(False, index=self.data.index)
 
-        for event_type in event_types:
+        for event_type in event_columns:
             if event_type in self.data.columns:
+                count = (self.data[event_type] == True).sum()
+                print(f"Found {count} events in '{event_type}'")
                 event_mask |= (self.data[event_type] == True)
+            else:
+                print(f"Warning: Event column '{event_type}' not found")
 
+        total_events = event_mask.sum()
+        print(f"Total events to label: {total_events}")
         return self.data.index[event_mask]
 
-    def calculate_static_barriers(self, events: pd.Series) -> pd.DataFrame:
-        """Calculate static barriers for events"""
-        barriers = pd.DataFrame(index=events)
-        config = self.config['static_barriers']
+    def calculate_barriers(self,
+                           events: pd.Series,
+                           profit_take: float = 0.02,
+                           stop_loss: float = 0.015,
+                           holding_days: float = 1.0,
+                           use_dynamic: bool = True,
+                           volatility_multiplier: float = 2.0) -> pd.DataFrame:
+        """
+        Calculate barriers for events - SIMPLIFIED VERSION
 
-        barriers['profit_take'] = config['profit_take']
-        barriers['stop_loss'] = config['stop_loss']
+        Args:
+            events: Event timestamps
+            profit_take: Static profit take level (e.g., 0.02 = 2%)
+            stop_loss: Static stop loss level (e.g., 0.015 = 1.5%)
+            holding_days: Vertical barrier in days
+            use_dynamic: If True, use ATR-based dynamic sizing
+            volatility_multiplier: Multiplier for ATR-based barriers
+        """
+        barriers = pd.DataFrame(index=events)
+
+        if use_dynamic and 'ATR_pct' in self.data.columns:
+            print("Using dynamic ATR-based barriers")
+            # Get ATR for dynamic sizing
+            atr_values = self.data.loc[events, 'ATR_pct'] / 100  # Convert percentage to decimal
+
+            # Dynamic barriers
+            barriers['profit_take'] = atr_values * volatility_multiplier
+            barriers['stop_loss'] = atr_values * (volatility_multiplier * 0.75)  # Slightly tighter stop loss
+
+            # Ensure minimum levels
+            barriers['profit_take'] = barriers['profit_take'].clip(lower=profit_take / 2)
+            barriers['stop_loss'] = barriers['stop_loss'].clip(lower=stop_loss / 2)
+
+        else:
+            print("Using static barriers")
+            # Static barriers
+            barriers['profit_take'] = profit_take
+            barriers['stop_loss'] = stop_loss
 
         # Calculate vertical barrier timestamps
-        vertical_timedelta = pd.Timedelta(days=config['vertical_days'])
+        vertical_timedelta = pd.Timedelta(days=holding_days)
         barriers['vertical_barrier'] = events + vertical_timedelta
 
         # Ensure vertical barriers don't exceed data range
@@ -163,105 +147,6 @@ class TripleBarrierLabeling:
         barriers['vertical_barrier'] = barriers['vertical_barrier'].clip(upper=max_date)
 
         return barriers
-
-    def calculate_dynamic_barriers(self, events: pd.Series) -> pd.DataFrame:
-        """Calculate dynamic barriers based on volatility measures"""
-        barriers = pd.DataFrame(index=events)
-        config = self.config['dynamic_barriers']
-
-        # Get volatility measure
-        vol_col = config['volatility_column']
-        if vol_col not in self.data.columns:
-            print(f"Warning: {vol_col} not found, using default static barriers")
-            return self.calculate_static_barriers(events)
-
-        volatility = self.data.loc[events, vol_col]
-
-        # Calculate horizontal barriers
-        barriers['profit_take'] = volatility * config['pt_atr_multiplier'] / 100
-        barriers['stop_loss'] = volatility * config['sl_atr_multiplier'] / 100
-
-        # Apply event-specific multipliers
-        for event_idx in events:
-            event_multiplier = self._get_event_specific_multiplier(event_idx)
-            barriers.loc[event_idx, 'profit_take'] *= event_multiplier['pt']
-            barriers.loc[event_idx, 'stop_loss'] *= event_multiplier['sl']
-
-        # Calculate dynamic vertical barriers
-        holding_periods = volatility * config['vertical_vol_multiplier']
-
-        # Convert to timedelta (assuming volatility-based periods in hours)
-        min_holding = pd.Timedelta(hours=config['min_holding_hours'])
-        max_holding = pd.Timedelta(days=config['max_holding_days'])
-
-        vertical_timedeltas = pd.to_timedelta(holding_periods, unit='h')
-        vertical_timedeltas = vertical_timedeltas.clip(lower=min_holding, upper=max_holding)
-
-        barriers['vertical_barrier'] = events + vertical_timedeltas
-
-        # Ensure vertical barriers don't exceed data range
-        max_date = self.data.index.max()
-        barriers['vertical_barrier'] = barriers['vertical_barrier'].clip(upper=max_date)
-
-        return barriers
-
-    def calculate_adaptive_barriers(self, events: pd.Series) -> pd.DataFrame:
-        """Calculate adaptive barriers that adjust based on recent performance"""
-        barriers = pd.DataFrame(index=events)
-        config = self.config['adaptive_barriers']
-
-        # Start with dynamic barriers as base
-        base_barriers = self.calculate_dynamic_barriers(events)
-
-        adaptation_window = config['adaptation_window']
-        target_hit_rate = config['target_hit_rate']
-        adaptation_factor = config['adaptation_factor']
-
-        # Initialize with base multipliers
-        barriers['profit_take'] = base_barriers['profit_take']
-        barriers['stop_loss'] = base_barriers['stop_loss']
-        barriers['vertical_barrier'] = base_barriers['vertical_barrier']
-
-        # Adapt barriers based on recent performance (simplified version)
-        for i, event_idx in enumerate(events):
-            if i < adaptation_window:
-                continue  # Not enough history for adaptation
-
-            # Look at recent events
-            recent_events = events[max(0, i - adaptation_window):i]
-            if len(recent_events) == 0:
-                continue
-
-            # This would need actual historical barrier hit data for full implementation
-            # For now, we'll apply a simplified adaptive adjustment
-
-            # Placeholder for adaptation logic
-            # In practice, you'd track barrier hit statistics and adjust accordingly
-            volatility_factor = self.data.loc[event_idx, 'vol_realized'] if 'vol_realized' in self.data.columns else 1.0
-
-            if volatility_factor > 1.5:  # High volatility period
-                barriers.loc[event_idx, 'profit_take'] *= 1.2
-                barriers.loc[event_idx, 'stop_loss'] *= 1.2
-            elif volatility_factor < 0.5:  # Low volatility period
-                barriers.loc[event_idx, 'profit_take'] *= 0.8
-                barriers.loc[event_idx, 'stop_loss'] *= 0.8
-
-        return barriers
-
-    def _get_event_specific_multiplier(self, event_idx: pd.Timestamp) -> Dict[str, float]:
-        """Get event-specific barrier multipliers"""
-        multipliers = {'pt': 1.0, 'sl': 1.0}
-
-        event_specific_config = self.config.get('event_specific_multipliers', {})
-
-        # Check which event types are active for this timestamp
-        for event_type, event_multipliers in event_specific_config.items():
-            if event_type in self.data.columns:
-                if self.data.loc[event_idx, event_type]:
-                    multipliers['pt'] *= event_multipliers['pt']
-                    multipliers['sl'] *= event_multipliers['sl']
-
-        return multipliers
 
     def apply_triple_barrier_single(self, event_info: Tuple) -> Dict:
         """Apply triple barrier method to a single event"""
@@ -286,7 +171,6 @@ class TripleBarrierLabeling:
                 }
 
             # Calculate returns from entry price
-            path_returns = (path_data['Close'] / start_price) - 1
             path_high_returns = (path_data['High'] / start_price) - 1
             path_low_returns = (path_data['Low'] / start_price) - 1
 
@@ -294,8 +178,7 @@ class TripleBarrierLabeling:
             profit_take_level = barriers_row['profit_take']
             stop_loss_level = -barriers_row['stop_loss']  # Negative for stop loss
 
-            # Find first barrier touch
-            # Check intrabar movements using High/Low
+            # Find first barrier touch using High/Low for intrabar precision
             profit_touches = path_high_returns >= profit_take_level
             loss_touches = path_low_returns <= stop_loss_level
 
@@ -312,7 +195,7 @@ class TripleBarrierLabeling:
                 label = 0
                 barrier_touched = 'vertical'
                 touch_time = vertical_barrier
-                return_achieved = path_returns.iloc[-1]
+                return_achieved = (path_data['Close'].iloc[-1] / start_price) - 1
             elif pd.isna(first_loss_touch) or (
                     not pd.isna(first_profit_touch) and first_profit_touch <= first_loss_touch):
                 # Profit take hit first
@@ -350,16 +233,18 @@ class TripleBarrierLabeling:
                 'holding_period_hours': 0.0
             }
 
-    def apply_triple_barriers(self, events: pd.Series, barriers: pd.DataFrame) -> pd.DataFrame:
+    def apply_triple_barriers(self, events: pd.Series, barriers: pd.DataFrame,
+                              use_parallel: bool = False) -> pd.DataFrame:
         """Apply triple barrier method to all events"""
         print(f"Applying triple barriers to {len(events)} events...")
 
         # Prepare event data for processing
         event_data = [(event_idx, barriers.loc[event_idx]) for event_idx in events]
 
-        if self.config['parallel_processing'] and len(events) > 100:
+        if use_parallel and len(events) > 1000:
             # Parallel processing for large datasets
-            num_threads = min(self.config['num_threads'], mp.cpu_count())
+            num_threads = min(4, mp.cpu_count())
+            print(f"Using parallel processing with {num_threads} threads")
 
             with mp.Pool(processes=num_threads) as pool:
                 results = list(tqdm(
@@ -379,35 +264,42 @@ class TripleBarrierLabeling:
 
         return results_df
 
-    def create_labeled_dataset(self) -> pd.DataFrame:
-        """Main function to create labeled dataset with triple barriers"""
+    def create_labeled_dataset(self,
+                               event_columns: Union[str, List[str], None] = None,
+                               profit_take: float = 0.02,
+                               stop_loss: float = 0.015,
+                               holding_days: float = 1.0,
+                               use_dynamic: bool = True,
+                               volatility_multiplier: float = 2.0,
+                               use_parallel: bool = False) -> pd.DataFrame:
+        """
+        SIMPLIFIED main function to create labeled dataset with triple barriers
+
+        Args:
+            event_columns: Which events to label (None = any_event, str = specific column, list = multiple columns)
+            profit_take: Profit take level (default 2%)
+            stop_loss: Stop loss level (default 1.5%)
+            holding_days: Vertical barrier in days (default 1 day)
+            use_dynamic: Use ATR-based dynamic barriers (default True)
+            volatility_multiplier: Multiplier for ATR (default 2.0)
+            use_parallel: Use parallel processing for large datasets (default False)
+        """
 
         # Get events to label
-        events = self.get_events_to_label()
+        events = self.get_events_to_label(event_columns)
 
         if len(events) == 0:
             print("No events found to label!")
             return self.data.copy()
 
-        print(f"Found {len(events)} events to label")
-
-        # Calculate barriers based on mode
-        barrier_mode = self.config['barrier_mode']
-
-        if barrier_mode == 'static':
-            barriers = self.calculate_static_barriers(events)
-            print("Using static barriers")
-        elif barrier_mode == 'dynamic':
-            barriers = self.calculate_dynamic_barriers(events)
-            print("Using dynamic barriers based on volatility")
-        elif barrier_mode == 'adaptive':
-            barriers = self.calculate_adaptive_barriers(events)
-            print("Using adaptive barriers")
-        else:
-            raise ValueError(f"Unknown barrier mode: {barrier_mode}")
+        # Calculate barriers
+        barriers = self.calculate_barriers(
+            events, profit_take, stop_loss, holding_days,
+            use_dynamic, volatility_multiplier
+        )
 
         # Apply triple barriers
-        barrier_results = self.apply_triple_barriers(events, barriers)
+        barrier_results = self.apply_triple_barriers(events, barriers, use_parallel)
 
         # Add results to original dataset
         labeled_data = self.data.copy()
@@ -428,21 +320,9 @@ class TripleBarrierLabeling:
             labeled_data.loc[event_idx, 'barrier_return'] = result['return_achieved']
             labeled_data.loc[event_idx, 'holding_period_hours'] = result['holding_period_hours']
 
-        # Add detailed barrier information if requested
-        if self.config['add_detailed_info']:
-            labeled_data['profit_take_level'] = np.nan
-            labeled_data['stop_loss_level'] = np.nan
-            labeled_data['vertical_barrier_time'] = pd.NaT
-
-            for event_idx in events:
-                if event_idx in barriers.index:
-                    labeled_data.loc[event_idx, 'profit_take_level'] = barriers.loc[event_idx, 'profit_take']
-                    labeled_data.loc[event_idx, 'stop_loss_level'] = barriers.loc[event_idx, 'stop_loss']
-                    labeled_data.loc[event_idx, 'vertical_barrier_time'] = barriers.loc[event_idx, 'vertical_barrier']
-
         return labeled_data
 
-    def get_labeling_summary(self, labeled_data: pd.DataFrame) -> Dict:
+    def get_summary(self, labeled_data: pd.DataFrame) -> Dict:
         """Generate summary statistics of the labeling process"""
 
         # Get labeled events only
@@ -467,125 +347,132 @@ class TripleBarrierLabeling:
                 summary[f'avg_return_label_{label}'] = label_data['barrier_return'].mean()
                 summary[f'avg_holding_period_label_{label}'] = label_data['holding_period_hours'].mean()
 
-        # Barrier mode specific stats
-        summary['barrier_configuration'] = {
-            'mode': self.config['barrier_mode'],
-            'event_types_used': self.config['event_types'],
-            'use_any_event': self.config['use_any_event']
-        }
-
         return summary
 
 
-def create_labeled_dataset(
-        enhanced_data: pd.DataFrame,
-        event_types: List[str] = None,
-        barrier_mode: Literal['static', 'dynamic', 'adaptive'] = 'dynamic',
-        custom_config: Dict = None
-) -> Tuple[pd.DataFrame, Dict]:
+# SIMPLIFIED USAGE FUNCTIONS
+
+def label_events(data: pd.DataFrame,
+                 event_columns: Union[str, List[str], None] = None,
+                 profit_take: float = 0.02,
+                 stop_loss: float = 0.015,
+                 holding_days: float = 1.0,
+                 use_dynamic: bool = True,
+                 use_parallel: bool = False) -> Tuple[pd.DataFrame, Dict]:
     """
-    Main function to create labeled dataset with triple barriers
+    SUPER SIMPLE function to label events with triple barriers
 
     Args:
-        enhanced_data: DataFrame from indicators.py
-        event_types: List of event columns to use for labeling
-        barrier_mode: Type of barriers to use ('static', 'dynamic', 'adaptive')
-        custom_config: Custom configuration dictionary
+        data: Your enhanced dataset from indicators.py
+        event_columns:
+            - None: Use any_event (default)
+            - 'outlier_event': Use only outlier events
+            - ['outlier_event', 'momentum_regime_event']: Use multiple event types
+        profit_take: Profit target as decimal (0.02 = 2%)
+        stop_loss: Stop loss as decimal (0.015 = 1.5%)
+        holding_days: How long to hold before giving up (days)
+        use_dynamic: Use ATR for dynamic barrier sizing
+        use_parallel: Use parallel processing (for large datasets)
 
     Returns:
-        Tuple of (labeled_dataset, summary_statistics)
+        (labeled_dataset, summary_stats)
     """
 
-    config = custom_config.copy() if custom_config else {}
+    labeler = TripleBarrierLabeling(data)
 
-    if event_types:
-        config['event_types'] = event_types
+    labeled_data = labeler.create_labeled_dataset(
+        event_columns=event_columns,
+        profit_take=profit_take,
+        stop_loss=stop_loss,
+        holding_days=holding_days,
+        use_dynamic=use_dynamic,
+        use_parallel=use_parallel
+    )
 
-    config['barrier_mode'] = barrier_mode
-
-    labeling_system = TripleBarrierLabeling(enhanced_data, config)
-
-    # Create labeled dataset
-    labeled_data = labeling_system.create_labeled_dataset()
-
-    # Generate summary
-    summary = labeling_system.get_labeling_summary(labeled_data)
+    summary = labeler.get_summary(labeled_data)
 
     return labeled_data, summary
 
 
-# Example configurations for different use cases
-def get_example_configs():
-    """Example configurations for different labeling strategies"""
+# PRESET CONFIGURATIONS for common use cases
 
-    configs = {
-        'conservative_static': {
-            'barrier_mode': 'static',
-            'static_barriers': {
-                'profit_take': 0.015,  # 1.5%
-                'stop_loss': 0.01,  # 1%
-                'vertical_days': 2.0  # 2 days
-            }
-        },
-
-        'aggressive_dynamic': {
-            'barrier_mode': 'dynamic',
-            'dynamic_barriers': {
-                'pt_atr_multiplier': 3.0,
-                'sl_atr_multiplier': 2.0,
-                'volatility_column': 'ATR_pct',
-                'vertical_vol_multiplier': 15,
-                'max_holding_days': 3
-            }
-        },
-
-        'intraday_scalping': {
-            'barrier_mode': 'dynamic',
-            'dynamic_barriers': {
-                'pt_atr_multiplier': 1.5,
-                'sl_atr_multiplier': 1.0,
-                'volatility_column': 'vol_realized',
-                'vertical_vol_multiplier': 4,
-                'min_holding_hours': 0.5,
-                'max_holding_days': 1
-            },
-            'event_types': ['vpd_volatility_event', 'outlier_event']  # Fast events only
-        },
-
-        'regime_change_focus': {
-            'barrier_mode': 'adaptive',
-            'event_types': ['momentum_regime_event'],
-            'dynamic_barriers': {
-                'pt_atr_multiplier': 4.0,
-                'sl_atr_multiplier': 3.0,
-                'vertical_vol_multiplier': 30,
-                'max_holding_days': 7
-            }
-        }
-    }
-
-    return configs
+def quick_label_outliers(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Quick labeling for outlier events with tight barriers"""
+    return label_events(
+        data,
+        event_columns='outlier_event',
+        profit_take=0.015,  # 1.5%
+        stop_loss=0.01,  # 1%
+        holding_days=0.5,  # 12 hours
+        use_dynamic=True
+    )
 
 
-enhanced_data = indicated
-print(enhanced_data)
-print(enhanced_data.columns)
-print(len(enhanced_data.loc[enhanced_data['event_type'] == 0]))
-print(len(enhanced_data.loc[enhanced_data['event_type'] == 1]))
-print(len(enhanced_data.loc[enhanced_data['event_type'] == 2]))
-print(len(enhanced_data.loc[enhanced_data['event_type'] == 3]))
-
-# Example 1: Quick start with defaults
-print("=== Default Configuration ===")
-
-labeled_data, summary = create_labeled_dataset(
-    enhanced_data,
-    event_types=['outlier_event'],
-    barrier_mode='static'
-)
-# Check the results
-print(labeled_data)
-print("Label distribution:", summary['label_distribution'])
-print("Barriers hit:", summary['barrier_hit_distribution'])
+def quick_label_momentum(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Quick labeling for momentum events with wider barriers"""
+    return label_events(
+        data,
+        event_columns='momentum_regime_event',
+        profit_take=0.03,  # 3%
+        stop_loss=0.02,  # 2%
+        holding_days=2.0,  # 2 days
+        use_dynamic=True
+    )
 
 
+def quick_label_all_events(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Quick labeling for all events"""
+    return label_events(
+        data,
+        event_columns=None,  # Uses any_event
+        use_dynamic=True
+    )
+
+
+# EXAMPLE USAGE
+if __name__ == "__main__":
+    enhanced_data = indicated
+
+    print("=== SIMPLIFIED USAGE EXAMPLES ===\n")
+
+    # Example 1: Just outlier events (should give you 5,853 events)
+    print("1. Labeling only outlier events:")
+    labeled_data, summary = label_events(
+        enhanced_data,
+        event_columns='outlier_event'
+    )
+    print(labeled_data)
+    print(f"Events labeled: {summary['total_events_labeled']}")
+    print(f"Success rate: {summary['success_rate']:.1%}")
+    print(f"Label distribution: {summary['label_distribution']}\n")
+
+    # Example 2: Multiple specific event types
+    print("2. Labeling outlier + momentum events:")
+    labeled_data2, summary2 = label_events(
+        enhanced_data,
+        event_columns=['outlier_event', 'momentum_regime_event']
+    )
+    print(labeled_data2)
+    print(f"Events labeled: {summary2['total_events_labeled']}")
+    print(f"Success rate: {summary2['success_rate']:.1%}\n")
+
+    # Example 3: All events (any_event column)
+    print("3. Labeling all events:")
+    labeled_data3, summary3 = label_events(enhanced_data)
+    print(labeled_data3)
+    print(f"Events labeled: {summary3['total_events_labeled']}")
+    print(f"Success rate: {summary3['success_rate']:.1%}\n")
+
+    # Example 4: Custom parameters
+    print("4. Custom tight parameters for scalping:")
+    labeled_data4, summary4 = label_events(
+        enhanced_data,
+        event_columns='vpd_volatility_event',
+        profit_take=0.01,  # 1%
+        stop_loss=0.008,  # 0.8%
+        holding_days=0.25,  # 6 hours
+        use_dynamic=True
+    )
+    print(labeled_data4)
+    print(f"Events labeled: {summary4['total_events_labeled']}")
+    print(f"Success rate: {summary4['success_rate']:.1%}")
