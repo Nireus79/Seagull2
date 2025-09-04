@@ -338,3 +338,91 @@ The key insight from López de Prado
 is that barriers should be economically meaningful rather than statistically optimized.
 They should reflect realistic trading constraints and market dynamics
 rather than being fitted to maximize historical performance."""
+
+# Labeling
+"""Main Features
+1. Barrier Modes:
+
+Static: Fixed percentage barriers (e.g., 2% profit, 1.5% stop loss)
+Dynamic: Volatility-based barriers using ATR or other volatility measures
+Adaptive: Barriers that adjust based on recent performance (simplified implementation)
+
+2. Event Selection:
+
+Choose specific event types (vpd_volatility_event, outlier_event, etc.)
+Use combined any_event column
+Event-specific barrier multipliers (wider barriers for regime changes, tighter for outliers)
+
+3. Dynamic Barrier Calculation:
+
+Uses your existing volatility columns (ATR_pct, vol_realized)
+Configurable multipliers for profit take and stop loss
+Dynamic vertical barriers based on volatility (more volatile = longer holding)
+Min/max holding period constraints
+
+4. Processing Features:
+
+Parallel processing for large datasets
+Intrabar barrier detection using High/Low prices
+Comprehensive error handling
+Progress tracking with tqdm
+
+Usage Examples
+python# Basic usage with dynamic barriers
+labeled_data, summary = create_labeled_dataset(enhanced_data)
+
+# Static barriers for conservative approach
+labeled_data, summary = create_labeled_dataset(
+    enhanced_data,
+    barrier_mode='static'
+)
+
+# Focus on specific events with custom config
+custom_config = {
+    'event_types': ['outlier_event', 'momentum_regime_event'],
+    'dynamic_barriers': {
+        'pt_atr_multiplier': 2.5,
+        'sl_atr_multiplier': 2.0,
+        'max_holding_days': 3
+    }
+}
+labeled_data, summary = create_labeled_dataset(
+    enhanced_data,
+    barrier_mode='dynamic',
+    custom_config=custom_config
+)
+Key Implementation Details
+1. Barrier Touch Detection:
+
+Uses High/Low data for intrabar detection (more accurate than close-only)
+Handles simultaneous barrier touches correctly
+First barrier touched wins (realistic trading behavior)
+
+2. Dynamic Sizing:
+
+Profit take = ATR × multiplier (default 2.0)
+Stop loss = ATR × multiplier (default 1.5)
+Vertical barrier = volatility-based periods with min/max constraints
+
+3. Event-Specific Adjustments:
+
+VPD events get wider barriers (higher uncertainty)
+Outlier events get tighter barriers (expected quick reversion)
+Regime changes get much wider barriers (structural shifts)
+
+4. Output Columns Added:
+
+triple_barrier_label: Binary target (1=profitable, 0=not profitable)
+barrier_touched: Which barrier was hit ('profit_take', 'stop_loss', 'vertical')
+barrier_return: Actual return achieved
+holding_period_hours: Time until barrier touch
+Optional detailed barrier level information
+
+The script addresses all your questions:
+
+Separate implementation - Takes indicators output and adds labeling columns
+Dynamic PTSL calculation - Based on ATR, volatility, and event types
+Flexible vertical barriers - Volatility-based with constraints to prevent overfitting
+
+The system is modular and allows you to experiment with different barrier strategies while maintaining the core López de Prado methodology.
+"""

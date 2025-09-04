@@ -8,93 +8,7 @@ from functools import partial
 from indicators import indicated
 
 warnings.filterwarnings('ignore')
-
-"""Main Features
-1. Barrier Modes:
-
-Static: Fixed percentage barriers (e.g., 2% profit, 1.5% stop loss)
-Dynamic: Volatility-based barriers using ATR or other volatility measures
-Adaptive: Barriers that adjust based on recent performance (simplified implementation)
-
-2. Event Selection:
-
-Choose specific event types (vpd_volatility_event, outlier_event, etc.)
-Use combined any_event column
-Event-specific barrier multipliers (wider barriers for regime changes, tighter for outliers)
-
-3. Dynamic Barrier Calculation:
-
-Uses your existing volatility columns (ATR_pct, vol_realized)
-Configurable multipliers for profit take and stop loss
-Dynamic vertical barriers based on volatility (more volatile = longer holding)
-Min/max holding period constraints
-
-4. Processing Features:
-
-Parallel processing for large datasets
-Intrabar barrier detection using High/Low prices
-Comprehensive error handling
-Progress tracking with tqdm
-
-Usage Examples
-python# Basic usage with dynamic barriers
-labeled_data, summary = create_labeled_dataset(enhanced_data)
-
-# Static barriers for conservative approach
-labeled_data, summary = create_labeled_dataset(
-    enhanced_data, 
-    barrier_mode='static'
-)
-
-# Focus on specific events with custom config
-custom_config = {
-    'event_types': ['outlier_event', 'momentum_regime_event'],
-    'dynamic_barriers': {
-        'pt_atr_multiplier': 2.5,
-        'sl_atr_multiplier': 2.0,
-        'max_holding_days': 3
-    }
-}
-labeled_data, summary = create_labeled_dataset(
-    enhanced_data, 
-    barrier_mode='dynamic',
-    custom_config=custom_config
-)
-Key Implementation Details
-1. Barrier Touch Detection:
-
-Uses High/Low data for intrabar detection (more accurate than close-only)
-Handles simultaneous barrier touches correctly
-First barrier touched wins (realistic trading behavior)
-
-2. Dynamic Sizing:
-
-Profit take = ATR × multiplier (default 2.0)
-Stop loss = ATR × multiplier (default 1.5)
-Vertical barrier = volatility-based periods with min/max constraints
-
-3. Event-Specific Adjustments:
-
-VPD events get wider barriers (higher uncertainty)
-Outlier events get tighter barriers (expected quick reversion)
-Regime changes get much wider barriers (structural shifts)
-
-4. Output Columns Added:
-
-triple_barrier_label: Binary target (1=profitable, 0=not profitable)
-barrier_touched: Which barrier was hit ('profit_take', 'stop_loss', 'vertical')
-barrier_return: Actual return achieved
-holding_period_hours: Time until barrier touch
-Optional detailed barrier level information
-
-The script addresses all your questions:
-
-Separate implementation - Takes indicators output and adds labeling columns
-Dynamic PTSL calculation - Based on ATR, volatility, and event types
-Flexible vertical barriers - Volatility-based with constraints to prevent overfitting
-
-The system is modular and allows you to experiment with different barrier strategies while maintaining the core López de Prado methodology.
-"""
+pd.set_option('display.max_columns', None)
 
 
 class TripleBarrierLabeling:
@@ -177,7 +91,7 @@ class TripleBarrierLabeling:
 
             # Processing settings
             'min_return_threshold': 0.001,  # Minimum return to consider event
-            'parallel_processing': True,
+            'parallel_processing': False,
             'num_threads': 4,
             'batch_size': 1000,
 
@@ -654,136 +568,24 @@ def get_example_configs():
 
 
 enhanced_data = indicated
+print(enhanced_data)
+print(enhanced_data.columns)
+print(len(enhanced_data.loc[enhanced_data['event_type'] == 0]))
+print(len(enhanced_data.loc[enhanced_data['event_type'] == 1]))
+print(len(enhanced_data.loc[enhanced_data['event_type'] == 2]))
+print(len(enhanced_data.loc[enhanced_data['event_type'] == 3]))
 
 # Example 1: Quick start with defaults
 print("=== Default Configuration ===")
-labeled_data, summary = create_labeled_dataset(enhanced_data)
-print(f"Labeled {summary['total_events_labeled']} events")
-print(f"Success rate: {summary['success_rate']:.2%}")
-print(f"Average holding period: {summary['average_holding_period_hours']:.1f} hours")
-
-# Example 2: Custom configuration
-print("\n=== Custom Configuration ===")
-my_config = {
-    'dynamic_barriers': {
-        'pt_atr_multiplier': 2.5,
-        'sl_atr_multiplier': 2.0,
-        'max_holding_days': 2
-    },
-    'event_types': ['vpd_volatility_event'],
-    'parallel_processing': True
-}
 
 labeled_data, summary = create_labeled_dataset(
     enhanced_data,
-    barrier_mode='dynamic',
-    custom_config=my_config
+    event_types=['outlier_event'],
+    barrier_mode='static'
 )
-
 # Check the results
+print(labeled_data)
 print("Label distribution:", summary['label_distribution'])
 print("Barriers hit:", summary['barrier_hit_distribution'])
 
-# Save results
-# labeled_data.to_csv('labeled_data.csv')
 
-# Basic Usage Examples
-# 1. Simple default usage (recommended starting point):
-# python# Uses dynamic barriers based on ATR, all detected events
-# labeled_data, summary = create_labeled_dataset(enhanced_data)
-# print(summary)
-# 2. Static barriers (conservative approach):
-# pythonlabeled_data, summary = create_labeled_dataset(
-#     enhanced_data,
-#     barrier_mode='static'
-# )
-# 3. Focus on specific event types:
-# pythonlabeled_data, summary = create_labeled_dataset(
-#     enhanced_data,
-#     event_types=['vpd_volatility_event', 'outlier_event'],  # Only these events
-#     barrier_mode='dynamic'
-# )
-# Advanced Configuration Examples
-# 4. Intraday scalping setup:
-# pythonintraday_config = {
-#     'dynamic_barriers': {
-#         'pt_atr_multiplier': 1.5,      # Tighter profit target
-#         'sl_atr_multiplier': 1.0,      # Tighter stop loss
-#         'volatility_column': 'ATR_pct', # Use ATR percentage
-#         'min_holding_hours': 0.5,       # 30 minutes minimum
-#         'max_holding_days': 1,          # 1 day maximum
-#         'vertical_vol_multiplier': 8    # Shorter time-based exits
-#     },
-#     'event_types': ['vpd_volatility_event', 'outlier_event'],  # Fast-resolving events only
-#     'parallel_processing': True,
-#     'num_threads': 6
-# }
-#
-# labeled_data, summary = create_labeled_dataset(
-#     enhanced_data,
-#     barrier_mode='dynamic',
-#     custom_config=intraday_config
-# )
-# 5. Swing trading setup:
-# pythonswing_config = {
-#     'dynamic_barriers': {
-#         'pt_atr_multiplier': 3.0,      # Wider profit target
-#         'sl_atr_multiplier': 2.5,      # Wider stop loss
-#         'volatility_column': 'vol_realized',
-#         'min_holding_hours': 4,        # 4 hours minimum
-#         'max_holding_days': 7,         # 1 week maximum
-#         'vertical_vol_multiplier': 25   # Longer time-based exits
-#     },
-#     'event_specific_multipliers': {
-#         'momentum_regime_event': {'pt': 1.5, 'sl': 1.3},  # Even wider for regime changes
-#         'vpd_volatility_event': {'pt': 1.2, 'sl': 1.1},
-#         'outlier_event': {'pt': 0.9, 'sl': 0.9}           # Tighter for outliers
-#     },
-#     'use_any_event': True  # Use all events
-# }
-#
-# labeled_data, summary = create_labeled_dataset(
-#     enhanced_data,
-#     barrier_mode='dynamic',
-#     custom_config=swing_config
-# )
-# 6. Conservative static barriers:
-# pythonconservative_config = {
-#     'static_barriers': {
-#         'profit_take': 0.01,     # 1% profit take
-#         'stop_loss': 0.008,      # 0.8% stop loss
-#         'vertical_days': 3.0     # 3 days max holding
-#     },
-#     'event_types': ['momentum_regime_event'],  # Only high-confidence events
-#     'min_return_threshold': 0.002  # Filter out very small moves
-# }
-#
-# labeled_data, summary = create_labeled_dataset(
-#     enhanced_data,
-#     barrier_mode='static',
-#     custom_config=conservative_config
-# )
-# 7. Research/experimentation setup:
-# pythonresearch_config = {
-#     'dynamic_barriers': {
-#         'pt_atr_multiplier': 2.0,
-#         'sl_atr_multiplier': 1.5,
-#         'volatility_column': 'ATR_pct',
-#         'max_holding_days': 5
-#     },
-#     'add_detailed_info': True,      # Add all barrier level columns
-#     'calculate_returns': True,       # Add return calculation columns
-#     'parallel_processing': False,    # Sequential for debugging
-#     'event_specific_multipliers': {
-#         'vpd_volatility_event': {'pt': 1.3, 'sl': 1.2},
-#         'outlier_event': {'pt': 0.8, 'sl': 0.7},
-#         'momentum_regime_event': {'pt': 2.0, 'sl': 1.8}
-#     }
-# }
-#
-# labeled_data, summary = create_labeled_dataset(
-#     enhanced_data,
-#     event_types=['vpd_volatility_event', 'momentum_regime_event'],
-#     barrier_mode='dynamic',
-#     custom_config=research_config
-# )

@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Union
-from scipy import stats
 import warnings
 import ta
 
@@ -648,5 +647,6 @@ def example_usage(resampled_data):
 
 data = pd.read_csv('resampled5mEE.csv')
 indicated, summ = example_usage(data)
+# indicated.to_csv('indicatedEE.csv', index=False)
 print(indicated)
 print(summ)
