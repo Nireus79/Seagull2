@@ -1,3 +1,3 @@
 # import data_resampling
-# import indicators
-import labeling
+import indicators
+# import labeling

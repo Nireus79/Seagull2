@@ -645,8 +645,10 @@ def example_usage(resampled_data):
     return enhanced_data, summary
 
 
-data = pd.read_csv('resampled5mEE.csv')
+data = pd.read_csv('resampled5mEE.csv')[:10000]
 indicated, summ = example_usage(data)
 # indicated.to_csv('indicatedEE.csv', index=False)
 print(indicated)
+for i in indicated.columns:
+    print(i)
 print(summ)
