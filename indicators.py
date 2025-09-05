@@ -10,28 +10,33 @@ pd.set_option('display.max_columns', None)
 
 class FlexibleTechnicalIndicators:
     """
-    Flexible technical indicators system using ta library for standard indicators,
-    focused on multi-timeframe alignment, normalization, and event detection.
+    Modified flexible technical indicators system implementing Elder's methodology:
+    - Base indicators calculated on 30min actual data (sampled every 30min)
+    - Results presented at 5min intervals (forward-filled)
+    - Includes CUSUM and Bollinger crossing events
     """
 
-    def __init__(self, resampled_data: pd.DataFrame, config: Dict = None):
+    def __init__(self, resampled_data: pd.DataFrame, config: Dict = None, low_timeframe: str = "30min"):
         """
         Initialize with resampled multi-timeframe data
 
         Args:
             resampled_data: DataFrame from FlexiblePointInTimeResampler with higher TF columns
             config: Configuration for indicators and events
+            low_timeframe: The timeframe to use for "base" indicators (e.g., "30min")
         """
         self.data = resampled_data.copy()
         self.data['t'] = pd.to_datetime(self.data['t'], unit='ms')
         self.data = self.data.set_index('t')
         self.config = config or self._default_config()
+        self.low_timeframe = low_timeframe  # This is what Elder calls the "intermediate" timeframe
 
         # Detect available timeframes
-        self.base_timeframe = self._detect_base_timeframe()
+        self.base_timeframe = self._detect_base_timeframe()  # Actual index frequency (5min)
         self.higher_timeframes = self._detect_higher_timeframes()
 
-        print(f"Detected base timeframe: {self.base_timeframe}")
+        print(f"Detected base timeframe (index): {self.base_timeframe}")
+        print(f"Low timeframe for indicators: {self.low_timeframe}")
         print(f"Available higher timeframes: {self.higher_timeframes}")
 
         # Validate required columns
@@ -40,7 +45,7 @@ class FlexibleTechnicalIndicators:
     def _default_config(self) -> Dict:
         """Default configuration for indicators and events"""
         return {
-            # Standard indicator periods
+            # Standard indicator periods (applied to low_timeframe, e.g., 30min)
             'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
             'sma_periods': {'short': 20, 'medium': 50, 'long': 200},
             'rsi_period': 14,
@@ -53,6 +58,19 @@ class FlexibleTechnicalIndicators:
             'daily_periods': {'short': 5, 'medium': 20, 'long': 50},
             'hourly_periods': {'short': 6, 'medium': 24, 'long': 72},
             'intraday_periods': {'short': 12, 'medium': 26, 'long': 50},
+
+            # CUSUM parameters
+            'cusum_config': {
+                'threshold': 2.0,  # Threshold for CUSUM detection
+                'drift': 0.5,  # Expected drift
+                'reset_period': 100  # Period to reset CUSUM if no events
+            },
+
+            # Bollinger Band crossing parameters
+            'bb_crossing_config': {
+                'lookback_periods': 3,  # How many periods to confirm crossing
+                'min_distance_pct': 1.0  # Minimum distance from band for valid crossing
+            },
 
             # Normalization settings
             'volatility_lookback': 50,
@@ -76,18 +94,15 @@ class FlexibleTechnicalIndicators:
             return "unknown"
 
         try:
-            # Ensure index is datetime
             if not isinstance(self.data.index, pd.DatetimeIndex):
                 print("Warning: Index is not DatetimeIndex, attempting conversion...")
                 self.data.index = pd.to_datetime(self.data.index)
 
             time_diff = self.data.index[1] - self.data.index[0]
 
-            # Handle different time_diff types
             if hasattr(time_diff, 'total_seconds'):
                 total_seconds = time_diff.total_seconds()
             elif isinstance(time_diff, (int, float)):
-                # Assume nanoseconds and convert to seconds
                 total_seconds = time_diff / 1e9
             else:
                 print(f"Warning: Unexpected time_diff type: {type(time_diff)}")
@@ -109,8 +124,6 @@ class FlexibleTechnicalIndicators:
 
         except Exception as e:
             print(f"Error detecting timeframe: {e}")
-            print(f"Index type: {type(self.data.index)}")
-            print(f"Index sample: {self.data.index[:3]}")
             return "unknown"
 
     def _detect_higher_timeframes(self) -> List[str]:
@@ -135,31 +148,102 @@ class FlexibleTechnicalIndicators:
 
     def _validate_data(self):
         """Validate required columns are present"""
+        # Check for base timeframe columns
         required_base = ['Open', 'High', 'Low', 'Close', 'Volume']
         missing = [col for col in required_base if col not in self.data.columns]
 
-        if missing:
-            raise ValueError(f"Missing required base columns: {missing}")
+        # Check for low timeframe columns (e.g., 30min)
+        required_low_tf = [f"{self.low_timeframe}_{col}" for col in required_base]
+        missing_low_tf = [col for col in required_low_tf if col not in self.data.columns]
+
+        if missing and missing_low_tf:
+            raise ValueError(
+                f"Missing required columns. Need either base columns {missing} or low TF columns {missing_low_tf}")
+
+    def _extract_low_timeframe_data(self) -> pd.DataFrame:
+        """
+        Extract actual low timeframe data (e.g., 30min) for indicator calculations
+        This implements Elder's methodology by using actual 30min bars
+        """
+        # Extract low timeframe columns
+        low_tf_cols = [col for col in self.data.columns if col.startswith(f"{self.low_timeframe}_")]
+        low_tf_data = self.data[low_tf_cols].copy()
+
+        # Get unique periods (where the low timeframe close actually changes)
+        close_col = f"{self.low_timeframe}_Close"
+        if close_col in low_tf_data.columns:
+            # Keep only rows where the low TF close price changes (actual new bars)
+            mask = (low_tf_data[close_col] != low_tf_data[close_col].shift(1)) | (
+                        low_tf_data.index == low_tf_data.index[0])
+            unique_periods = low_tf_data[mask].copy()
+        else:
+            unique_periods = low_tf_data.copy()
+
+        # Rename columns for ta library compatibility
+        column_mapping = {
+            f"{self.low_timeframe}_Open": "Open",
+            f"{self.low_timeframe}_High": "High",
+            f"{self.low_timeframe}_Low": "Low",
+            f"{self.low_timeframe}_Close": "Close",
+            f"{self.low_timeframe}_Volume": "Volume"
+        }
+
+        available_mapping = {k: v for k, v in column_mapping.items() if k in unique_periods.columns}
+        unique_periods = unique_periods.rename(columns=available_mapping)
+
+        print(f"Extracted {len(unique_periods)} unique {self.low_timeframe} periods for indicator calculation")
+        return unique_periods
 
     def add_base_indicators(self) -> pd.DataFrame:
-        """Add standard technical indicators using ta library"""
+        """
+        Add standard technical indicators calculated on low timeframe data (Elder's methodology)
+        Indicators are calculated every 30min but presented every 5min via forward-fill
+        """
         data = self.data.copy()
 
-        # Use ta library for all standard indicators
-        high, low, close, volume = data['High'], data['Low'], data['Close'], data['Volume']
+        # Extract actual low timeframe data for calculations
+        low_tf_data = self._extract_low_timeframe_data()
 
-        # Trend indicators - EMAs
+        if len(low_tf_data) < 20:
+            print(f"Warning: Insufficient {self.low_timeframe} data for indicators")
+            return data
+
+        # Calculate indicators on low timeframe data using ta library
+        indicators = self._calculate_low_tf_indicators(low_tf_data)
+
+        # Forward-fill indicators to base timeframe (5min) resolution
+        aligned_indicators = self._align_indicators_to_base(indicators, data.index)
+
+        # Add to main dataset
+        for col in aligned_indicators.columns:
+            data[col] = aligned_indicators[col]
+
+        return data
+
+    def _calculate_low_tf_indicators(self, low_tf_data: pd.DataFrame) -> pd.DataFrame:
+        """Calculate indicators on actual low timeframe data"""
+        if 'Close' not in low_tf_data.columns or len(low_tf_data) < 10:
+            return pd.DataFrame(index=low_tf_data.index)
+
+        indicators = pd.DataFrame(index=low_tf_data.index)
+        high, low, close, volume = (low_tf_data.get(col, pd.Series())
+                                    for col in ['High', 'Low', 'Close', 'Volume'])
+
+        # Use ta library for all standard indicators on actual low TF data
+        # EMAs
         if 'ema_periods' in self.config:
             for name, period in self.config['ema_periods'].items():
-                data[f'EMA_{name}_{period}'] = ta.trend.EMAIndicator(close, window=period).ema_indicator()
+                if len(close) >= period:
+                    indicators[f'EMA_{name}_{period}'] = ta.trend.EMAIndicator(close, window=period).ema_indicator()
 
-        # SMAs with safety check
+        # SMAs
         if 'sma_periods' in self.config:
             for name, period in self.config['sma_periods'].items():
-                data[f'SMA_{name}_{period}'] = ta.trend.SMAIndicator(close, window=period).sma_indicator()
+                if len(close) >= period:
+                    indicators[f'SMA_{name}_{period}'] = ta.trend.SMAIndicator(close, window=period).sma_indicator()
 
-        # MACD with safety check
-        if 'macd_params' in self.config:
+        # MACD
+        if 'macd_params' in self.config and len(close) >= 26:
             macd_params = self.config['macd_params']
             macd = ta.trend.MACD(
                 close,
@@ -167,39 +251,182 @@ class FlexibleTechnicalIndicators:
                 window_fast=macd_params.get('fast', 12),
                 window_sign=macd_params.get('signal', 9)
             )
-            data['MACD'] = macd.macd()
-            data['MACD_signal'] = macd.macd_signal()
-            data['MACD_histogram'] = macd.macd_diff()
+            indicators['MACD'] = macd.macd()
+            indicators['MACD_signal'] = macd.macd_signal()
+            indicators['MACD_histogram'] = macd.macd_diff()
 
-        # RSI with safety check
+        # RSI
         rsi_period = self.config.get('rsi_period', 14)
-        data['RSI'] = ta.momentum.RSIIndicator(close, window=rsi_period).rsi()
+        if len(close) >= rsi_period:
+            indicators['RSI'] = ta.momentum.RSIIndicator(close, window=rsi_period).rsi()
 
-        # Bollinger Bands with safety check
+        # Bollinger Bands
         bb_period = self.config.get('bb_period', 20)
         bb_std = self.config.get('bb_std', 2)
-        bb = ta.volatility.BollingerBands(close, window=bb_period, window_dev=bb_std)
-        data['BB_upper'] = bb.bollinger_hband()
-        data['BB_middle'] = bb.bollinger_mavg()
-        data['BB_lower'] = bb.bollinger_lband()
+        if len(close) >= bb_period:
+            bb = ta.volatility.BollingerBands(close, window=bb_period, window_dev=bb_std)
+            indicators['BB_upper'] = bb.bollinger_hband()
+            indicators['BB_middle'] = bb.bollinger_mavg()
+            indicators['BB_lower'] = bb.bollinger_lband()
 
-        # ATR with safety check
+        # ATR
         atr_period = self.config.get('atr_period', 14)
-        data['ATR'] = ta.volatility.AverageTrueRange(high, low, close, window=atr_period).average_true_range()
+        if len(close) >= atr_period and len(high) >= atr_period and len(low) >= atr_period:
+            indicators['ATR'] = ta.volatility.AverageTrueRange(high, low, close, window=atr_period).average_true_range()
 
-        # Volume indicators
-        data['Volume_SMA'] = ta.trend.SMAIndicator(volume, window=20).sma_indicator()
-        data['Volume_ratio'] = volume / data['Volume_SMA']
+        # Volume indicators (if volume data available)
+        if len(volume) > 0 and not volume.isna().all():
+            indicators['Volume_SMA'] = ta.trend.SMAIndicator(volume, window=min(20, len(volume) // 2)).sma_indicator()
+            volume_sma = indicators['Volume_SMA']
+            indicators['Volume_ratio'] = volume / volume_sma.replace(0, np.nan)
+
+        return indicators
+
+    def add_cusum_detection(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add CUSUM (Cumulative Sum) change detection on low timeframe data
+        """
+        # Extract low timeframe returns for CUSUM calculation
+        low_tf_close_col = f"{self.low_timeframe}_Close"
+        if low_tf_close_col not in data.columns:
+            print(f"Warning: {low_tf_close_col} not found, using base Close for CUSUM")
+            price_series = data['Close']
+        else:
+            price_series = data[low_tf_close_col]
+
+        # Calculate returns on low timeframe data
+        returns = price_series.pct_change().fillna(0)
+
+        # CUSUM parameters
+        cusum_config = self.config.get('cusum_config', {})
+        threshold = cusum_config.get('threshold', 2.0)
+        drift = cusum_config.get('drift', 0.5)
+        reset_period = cusum_config.get('reset_period', 100)
+
+        # Initialize CUSUM arrays
+        cusum_pos = np.zeros(len(returns))
+        cusum_neg = np.zeros(len(returns))
+        cusum_events = np.zeros(len(returns), dtype=bool)
+        cusum_direction = np.zeros(len(returns))  # 1 for positive, -1 for negative
+
+        # Calculate CUSUM
+        for i in range(1, len(returns)):
+            # Positive CUSUM (detect upward changes)
+            cusum_pos[i] = max(0, cusum_pos[i - 1] + returns.iloc[i] - drift / 100)
+
+            # Negative CUSUM (detect downward changes)
+            cusum_neg[i] = min(0, cusum_neg[i - 1] + returns.iloc[i] + drift / 100)
+
+            # Check for events
+            if cusum_pos[i] > threshold / 100:
+                cusum_events[i] = True
+                cusum_direction[i] = 1
+                cusum_pos[i] = 0  # Reset after detection
+
+            elif cusum_neg[i] < -threshold / 100:
+                cusum_events[i] = True
+                cusum_direction[i] = -1
+                cusum_neg[i] = 0  # Reset after detection
+
+            # Periodic reset to avoid drift
+            if i % reset_period == 0:
+                cusum_pos[i] = 0
+                cusum_neg[i] = 0
+
+        # Add CUSUM features to dataset
+        data['CUSUM_pos'] = cusum_pos
+        data['CUSUM_neg'] = cusum_neg
+        data['CUSUM_event'] = cusum_events
+        data['CUSUM_direction'] = cusum_direction  # 1=up, -1=down, 0=none
+
+        return data
+
+    def add_bollinger_crossing_events(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add Bollinger Band crossing events detection
+        """
+        if not all(col in data.columns for col in ['BB_upper', 'BB_lower', 'BB_middle']):
+            print("Warning: Bollinger Bands not found, skipping crossing events")
+            return data
+
+        bb_config = self.config.get('bb_crossing_config', {})
+        lookback = bb_config.get('lookback_periods', 3)
+        min_distance_pct = bb_config.get('min_distance_pct', 1.0)
+
+        # Use the current close price for crossing detection (real-time)
+        close_price = data[f"{self.low_timeframe}_Close"] if f"{self.low_timeframe}_Close" in data.columns else data[
+            'Close']
+
+        # Calculate distances from bands
+        upper_distance = (close_price - data['BB_upper']) / close_price * 100
+        lower_distance = (data['BB_lower'] - close_price) / close_price * 100
+        middle_distance = close_price - data['BB_middle']
+
+        # Initialize crossing event columns
+        data['BB_upper_cross'] = False
+        data['BB_lower_cross'] = False
+        data['BB_middle_cross_up'] = False
+        data['BB_middle_cross_down'] = False
+        data['BB_squeeze'] = False
+        data['BB_expansion'] = False
+
+        # Upper band crossing (price breaks above upper band)
+        for i in range(lookback, len(data)):
+            # Check if price was below upper band and now above
+            was_below = all(data['BB_upper'].iloc[i - j] > close_price.iloc[i - j] for j in range(1, lookback + 1))
+            is_above = close_price.iloc[i] > data['BB_upper'].iloc[i]
+            sufficient_distance = upper_distance.iloc[i] > min_distance_pct
+
+            if was_below and is_above and sufficient_distance:
+                data.loc[data.index[i], 'BB_upper_cross'] = True
+
+        # Lower band crossing (price breaks below lower band)
+        for i in range(lookback, len(data)):
+            was_above = all(data['BB_lower'].iloc[i - j] < close_price.iloc[i - j] for j in range(1, lookback + 1))
+            is_below = close_price.iloc[i] < data['BB_lower'].iloc[i]
+            sufficient_distance = lower_distance.iloc[i] > min_distance_pct
+
+            if was_above and is_below and sufficient_distance:
+                data.loc[data.index[i], 'BB_lower_cross'] = True
+
+        # Middle line crossings
+        for i in range(1, len(data)):
+            # Upward cross of middle line
+            if (middle_distance.iloc[i - 1] <= 0 and middle_distance.iloc[i] > 0):
+                data.loc[data.index[i], 'BB_middle_cross_up'] = True
+
+            # Downward cross of middle line
+            elif (middle_distance.iloc[i - 1] >= 0 and middle_distance.iloc[i] < 0):
+                data.loc[data.index[i], 'BB_middle_cross_down'] = True
+
+        # Bollinger Band squeeze and expansion detection
+        bb_width = (data['BB_upper'] - data['BB_lower']) / data['BB_middle'] * 100
+        bb_width_ma = bb_width.rolling(20).mean()
+        bb_width_std = bb_width.rolling(20).std()
+
+        # Squeeze: width below moving average minus 1 std
+        data['BB_squeeze'] = bb_width < (bb_width_ma - bb_width_std)
+
+        # Expansion: width above moving average plus 1 std
+        data['BB_expansion'] = bb_width > (bb_width_ma + bb_width_std)
+
+        # Combined BB events
+        data['BB_any_cross'] = (data['BB_upper_cross'] | data['BB_lower_cross'] |
+                                data['BB_middle_cross_up'] | data['BB_middle_cross_down'])
 
         return data
 
     def add_normalized_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add López de Prado style normalized/relative indicators"""
 
+        # Use low timeframe data for returns calculation
+        close_col = f"{self.low_timeframe}_Close" if f"{self.low_timeframe}_Close" in data.columns else 'Close'
+
         # Base volatility measures
-        data['returns'] = data['Close'].pct_change()
-        data['vol_realized'] = data['returns'].rolling(20).std() * np.sqrt(24 * 60 / 30)  # Annualized
-        data['ATR_pct'] = data['ATR'] / data['Close'] * 100  # ATR as % of price
+        data['returns'] = data[close_col].pct_change()
+        data['vol_realized'] = data['returns'].rolling(20).std() * np.sqrt(
+            24 * 60 / self._timeframe_to_minutes(self.low_timeframe))
+        data['ATR_pct'] = data['ATR'] / data[close_col] * 100
 
         # Normalized trend indicators (distances from moving averages)
         if 'ema_periods' in self.config:
@@ -207,9 +434,9 @@ class FlexibleTechnicalIndicators:
                 ema_col = f'EMA_{name}_{period}'
                 if ema_col in data.columns:
                     # Distance normalized by ATR (López de Prado style)
-                    data[f'EMA_{name}_distance_atr'] = (data['Close'] - data[ema_col]) / data['ATR']
+                    data[f'EMA_{name}_distance_atr'] = (data[close_col] - data[ema_col]) / data['ATR']
                     # Percentage distance
-                    data[f'EMA_{name}_distance_pct'] = (data['Close'] / data[ema_col] - 1) * 100
+                    data[f'EMA_{name}_distance_pct'] = (data[close_col] / data[ema_col] - 1) * 100
 
         # Volatility-normalized MACD (more stable)
         if 'MACD' in data.columns and 'ATR' in data.columns:
@@ -218,23 +445,14 @@ class FlexibleTechnicalIndicators:
 
         # RSI momentum (Elder style - RSI direction * momentum alignment)
         if 'RSI' in data.columns:
-            momentum_direction = np.sign(data['Close'].pct_change(5))
+            momentum_direction = np.sign(data[close_col].pct_change(5))
             data['RSI_momentum'] = (data['RSI'] - 50) * momentum_direction
 
         # Bollinger Bands position and efficiency
-        if all(col in data.columns for col in ['BB_upper', 'BB_lower', 'Close']):
+        if all(col in data.columns for col in ['BB_upper', 'BB_lower']):
             bb_range = data['BB_upper'] - data['BB_lower']
-            data['BB_position'] = ((data['Close'] - data['BB_lower']) / bb_range * 100).fillna(50)
-            data['BB_width_pct'] = (bb_range / data['Close'] * 100).fillna(0)
-
-        # Volume-price relationship (microstructure)
-        corr_window = self.config.get('correlation_window', 20)
-        data['volume_price_corr'] = data['Volume'].rolling(corr_window).corr(data['Close'].pct_change())
-
-        # Price impact efficiency
-        price_change_abs = abs(data['Close'].pct_change())
-        volume_normalized = data['Volume_ratio'].replace(0, np.nan)
-        data['price_impact_efficiency'] = price_change_abs / volume_normalized
+            data['BB_position'] = ((data[close_col] - data['BB_lower']) / bb_range * 100).fillna(50)
+            data['BB_width_pct'] = (bb_range / data[close_col] * 100).fillna(0)
 
         return data
 
@@ -242,6 +460,9 @@ class FlexibleTechnicalIndicators:
         """Add higher timeframe indicators using ACTUAL timeframe data"""
 
         for tf in self.higher_timeframes:
+            if tf == self.low_timeframe:  # Skip if it's the same as our base indicator timeframe
+                continue
+
             tf_close_col = f"{tf}_Close"
 
             if tf_close_col not in data.columns:
@@ -252,7 +473,7 @@ class FlexibleTechnicalIndicators:
             # Extract actual timeframe data
             tf_data = self._extract_actual_timeframe_data(data, tf)
 
-            if len(tf_data) < 20:  # Minimum data check
+            if len(tf_data) < 20:
                 print(f"Insufficient {tf} data ({len(tf_data)} periods), skipping...")
                 continue
 
@@ -282,7 +503,6 @@ class FlexibleTechnicalIndicators:
         # Remove consecutive duplicates to get actual TF periods
         close_col = f"{timeframe}_Close"
         if close_col in tf_data.columns:
-            # Keep only rows where the TF close price changes
             mask = (tf_data[close_col] != tf_data[close_col].shift(1)) | (tf_data.index == tf_data.index[0])
             tf_data = tf_data[mask].copy()
 
@@ -365,11 +585,14 @@ class FlexibleTechnicalIndicators:
         if tf_close not in data.columns:
             return data
 
+        # Use low timeframe close for comparison
+        close_col = f"{self.low_timeframe}_Close" if f"{self.low_timeframe}_Close" in data.columns else 'Close'
+
         # Price position relative to higher TF
-        data[f'price_vs_{tf}_pct'] = (data['Close'] / data[tf_close] - 1) * 100
+        data[f'price_vs_{tf}_pct'] = (data[close_col] / data[tf_close] - 1) * 100
 
         # Momentum alignment (Elder's triple screen concept)
-        base_momentum = data['Close'].pct_change(5)
+        base_momentum = data[close_col].pct_change(5)
 
         if f'{tf}_momentum_short' in data.columns:
             tf_momentum = data[f'{tf}_momentum_short']
@@ -381,43 +604,33 @@ class FlexibleTechnicalIndicators:
             tf_momentum_abs = abs(tf_momentum)
             data[f'momentum_ratio_{tf}'] = (base_momentum_abs / tf_momentum_abs.replace(0, np.nan)).fillna(1)
 
-        # Volatility cascade (volatility regime comparison)
-        if f'{tf}_volatility' in data.columns:
-            base_vol = data['vol_realized']
-            tf_vol = data[f'{tf}_volatility']
-            data[f'vol_regime_{tf}'] = (base_vol / tf_vol.replace(0, np.nan)).fillna(1)
-
-        # Trend strength comparison
-        if f'{tf}_EMA_short' in data.columns:
-            # Higher TF trend strength
-            tf_trend_strength = abs(data[tf_close] - data[f'{tf}_EMA_short']) / data[tf_close] * 100
-            # Base TF trend strength
-            base_trend_strength = abs(data['Close'] - data['EMA_fast_12']) / data['Close'] * 100
-            data[f'trend_strength_vs_{tf}'] = base_trend_strength - tf_trend_strength
-
         return data
 
     def add_event_detection_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add specific features needed for event detection"""
 
-        # Volume-Price Divergence features
+        # Use low timeframe data for event detection
+        close_col = f"{self.low_timeframe}_Close" if f"{self.low_timeframe}_Close" in data.columns else 'Close'
+        volume_col = f"{self.low_timeframe}_Volume" if f"{self.low_timeframe}_Volume" in data.columns else 'Volume'
+
         config = self.config.get('event_config', {})
 
         # Price momentum normalized by volatility
         price_lookback = config.get('vpd_price_lookback', 20)
-        price_momentum = data['Close'].pct_change(price_lookback)
+        price_momentum = data[close_col].pct_change(price_lookback)
         data['price_momentum_norm'] = price_momentum / data['ATR_pct'] * 100
 
         # Volume momentum (z-score)
-        vol_lookback = config.get('vpd_volume_lookback', 20)
-        vol_ma = data['Volume'].rolling(vol_lookback).mean()
-        vol_std = data['Volume'].rolling(vol_lookback).std()
-        data['volume_zscore'] = (data['Volume'] - vol_ma) / vol_std.replace(0, np.nan)
+        if volume_col in data.columns:
+            vol_lookback = config.get('vpd_volume_lookback', 20)
+            vol_ma = data[volume_col].rolling(vol_lookback).mean()
+            vol_std = data[volume_col].rolling(vol_lookback).std()
+            data['volume_zscore'] = (data[volume_col] - vol_ma) / vol_std.replace(0, np.nan)
 
-        # Price-Volume correlation for divergence detection
-        data['price_vol_corr'] = data['price_momentum_norm'].rolling(price_lookback).corr(
-            data['volume_zscore']
-        )
+            # Price-Volume correlation for divergence detection
+            data['price_vol_corr'] = data['price_momentum_norm'].rolling(price_lookback).corr(
+                data['volume_zscore']
+            )
 
         # Volatility breakout score
         vol_lookback_long = self.config.get('volatility_lookback', 50)
@@ -434,9 +647,9 @@ class FlexibleTechnicalIndicators:
         )
 
         # Multi-timeframe momentum for regime detection
-        data['momentum_short'] = data['Close'].pct_change(6)  # 3 hours for 30min base
-        data['momentum_medium'] = data['Close'].pct_change(16)  # 8 hours
-        data['momentum_long'] = data['Close'].pct_change(48)  # 24 hours
+        data['momentum_short'] = data[close_col].pct_change(6)
+        data['momentum_medium'] = data[close_col].pct_change(16)
+        data['momentum_long'] = data[close_col].pct_change(48)
 
         # Momentum regime score
         momentum_alignment = (np.sign(data['momentum_short']) *
@@ -447,7 +660,7 @@ class FlexibleTechnicalIndicators:
         return data
 
     def detect_events(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Detect events and add event columns"""
+        """Detect events and add event columns including CUSUM and Bollinger crossing events"""
 
         config = self.config.get('event_config', {})
 
@@ -457,15 +670,15 @@ class FlexibleTechnicalIndicators:
         data['momentum_regime_event'] = False
 
         # Volume-Price Divergence + Volatility events
-        if all(col in data.columns for col in ['price_vol_corr', 'vol_breakout_score', 'volume_zscore']):
+        if all(col in data.columns for col in ['price_vol_corr', 'vol_breakout_score']):
             divergence_threshold = config.get('vpd_divergence_threshold', 0.7)
             vol_threshold = config.get('vol_breakout_threshold', 2.0)
 
-            vpd_condition = abs(data['price_vol_corr']) < divergence_threshold
-            vol_condition = abs(data['vol_breakout_score']) > vol_threshold
-            strength_condition = (abs(data['volume_zscore']) > 1.5) | (abs(data['price_momentum_norm']) > 1.5)
-
-            data['vpd_volatility_event'] = vpd_condition & vol_condition & strength_condition
+            if 'volume_zscore' in data.columns:
+                vpd_condition = abs(data['price_vol_corr']) < divergence_threshold
+                vol_condition = abs(data['vol_breakout_score']) > vol_threshold
+                strength_condition = (abs(data['volume_zscore']) > 1.5) | (abs(data['price_momentum_norm']) > 1.5)
+                data['vpd_volatility_event'] = vpd_condition & vol_condition & strength_condition
 
         # Return Distribution Outlier events
         if 'return_zscore_rolling' in data.columns:
@@ -478,40 +691,68 @@ class FlexibleTechnicalIndicators:
             regime_changes = abs(data['momentum_regime_score'].diff()) > regime_threshold
             data['momentum_regime_event'] = regime_changes
 
-        # Combined event indicators
-        data['any_event'] = (data['vpd_volatility_event'] |
-                             data['outlier_event'] |
-                             data['momentum_regime_event'])
+        # Combined traditional events
+        data['traditional_event'] = (data['vpd_volatility_event'] |
+                                     data['outlier_event'] |
+                                     data['momentum_regime_event'])
 
-        # Event type encoding
+        # Include CUSUM and Bollinger crossing events in combined events
+        cusum_event = data.get('CUSUM_event', False)
+        bb_any_cross = data.get('BB_any_cross', False)
+        bb_squeeze = data.get('BB_squeeze', False)
+        bb_expansion = data.get('BB_expansion', False)
+
+        # Combined event indicators (including new event types)
+        data['any_event'] = (data['traditional_event'] |
+                             cusum_event |
+                             bb_any_cross |
+                             bb_squeeze |
+                             bb_expansion)
+
+        # Enhanced event type encoding
         data['event_type'] = 0
         data.loc[data['vpd_volatility_event'], 'event_type'] = 1
         data.loc[data['outlier_event'], 'event_type'] = 2
         data.loc[data['momentum_regime_event'], 'event_type'] = 3
+        data.loc[cusum_event, 'event_type'] = 4
+        data.loc[bb_any_cross, 'event_type'] = 5
+        data.loc[bb_squeeze, 'event_type'] = 6
+        data.loc[bb_expansion, 'event_type'] = 7
 
         # Handle multiple simultaneous events
         event_cols = ['vpd_volatility_event', 'outlier_event', 'momentum_regime_event']
+        if 'CUSUM_event' in data.columns:
+            event_cols.append('CUSUM_event')
+        if 'BB_any_cross' in data.columns:
+            event_cols.append('BB_any_cross')
+
         multiple_events = data[event_cols].sum(axis=1) > 1
-        data.loc[multiple_events, 'event_type'] = 4 + data.loc[multiple_events, event_cols].sum(axis=1) - 2
+        data.loc[multiple_events, 'event_type'] = 8 + data.loc[multiple_events, event_cols].sum(axis=1) - 2
 
         return data
 
     def create_complete_dataset(self) -> pd.DataFrame:
-        """Create complete dataset with all indicators and events"""
+        """Create complete dataset with all indicators and events using Elder's methodology"""
 
-        print("Step 1/5: Adding base indicators using ta library...")
+        print("Step 1/7: Adding base indicators calculated on low timeframe data...")
         data = self.add_base_indicators()
 
-        print("Step 2/5: Adding normalized/relative indicators...")
+        print("Step 2/7: Adding CUSUM detection...")
+        data = self.add_cusum_detection(data)
+
+        print("Step 3/7: Adding Bollinger Band crossing events...")
+        data = self.add_bollinger_crossing_events(data)
+
+        print("Step 4/7: Adding normalized/relative indicators...")
         data = self.add_normalized_indicators(data)
 
-        print("Step 3/5: Adding higher timeframe context...")
+        print("Step 5/7: Adding higher timeframe context...")
         data = self.add_higher_timeframe_context(data)
 
-        print("Step 4/5: Adding event detection features...")
+        print("Step 6/7: Adding event detection features...")
         data = self.add_event_detection_features(data)
 
-        print("Step 5/5: Detecting events...")
+        print("Step 7/7: Detecting events...")
         data = self.detect_events(data)
 
         print(f"Complete dataset shape: {data.shape}")
@@ -526,6 +767,7 @@ class FlexibleTechnicalIndicators:
                 'total_columns': len(data.columns),
                 'date_range': (str(data.index.min()), str(data.index.max())),
                 'base_timeframe': self.base_timeframe,
+                'low_timeframe': self.low_timeframe,
                 'higher_timeframes': self.higher_timeframes
             },
 
@@ -537,7 +779,10 @@ class FlexibleTechnicalIndicators:
                 'higher_tf_indicators': len(
                     [col for col in data.columns if any(tf in col for tf in self.higher_timeframes)]),
                 'event_features': len([col for col in data.columns if 'event' in col.lower() or any(
-                    x in col for x in ['zscore', 'breakout', 'regime'])])
+                    x in col for x in ['zscore', 'breakout', 'regime', 'CUSUM', 'BB_'])]),
+                'cusum_features': len([col for col in data.columns if 'CUSUM' in col]),
+                'bollinger_features': len([col for col in data.columns if 'BB_' in col and any(
+                    x in col for x in ['cross', 'squeeze', 'expansion'])])
             }
         }
 
@@ -550,34 +795,58 @@ class FlexibleTechnicalIndicators:
             }
             summary['events'] = event_stats
 
-            # Event type meanings
+            # Enhanced event type meanings
             summary['event_type_legend'] = {
                 0: "No event",
                 1: "Volume-Price Divergence + Volatility",
                 2: "Return Distribution Outlier",
                 3: "Momentum Regime Change",
-                4: "Multiple events (2 types)",
-                5: "Multiple events (3 types)"
+                4: "CUSUM Change Detection",
+                5: "Bollinger Band Crossing",
+                6: "Bollinger Band Squeeze",
+                7: "Bollinger Band Expansion",
+                8: "Multiple events (2 types)",
+                9: "Multiple events (3 types)",
+                10: "Multiple events (4+ types)"
             }
+
+        # CUSUM statistics
+        if 'CUSUM_event' in data.columns:
+            cusum_stats = {
+                'total_cusum_events': int(data['CUSUM_event'].sum()),
+                'cusum_up_events': int((data['CUSUM_direction'] == 1).sum()),
+                'cusum_down_events': int((data['CUSUM_direction'] == -1).sum()),
+            }
+            summary['cusum_events'] = cusum_stats
+
+        # Bollinger Band crossing statistics
+        bb_cols = [col for col in data.columns if 'BB_' in col and 'cross' in col]
+        if bb_cols:
+            bb_stats = {}
+            for col in bb_cols:
+                bb_stats[col] = int(data[col].sum())
+            summary['bollinger_crossings'] = bb_stats
 
         return summary
 
 
 def create_enhanced_dataset(resampled_data: pd.DataFrame,
-                            custom_config: Dict = None) -> Tuple[pd.DataFrame, Dict]:
+                            custom_config: Dict = None,
+                            low_timeframe: str = "30min") -> Tuple[pd.DataFrame, Dict]:
     """
-    Main function to create enhanced dataset with all indicators and events
+    Main function to create enhanced dataset with Elder's methodology and additional events
 
     Args:
         resampled_data: DataFrame from FlexiblePointInTimeResampler
         custom_config: Optional custom configuration
+        low_timeframe: The timeframe to use for base indicators (e.g., "30min")
 
     Returns:
         Tuple of (enhanced_dataset, summary_statistics)
     """
 
-    # Initialize system
-    indicator_system = FlexibleTechnicalIndicators(resampled_data, custom_config)
+    # Initialize system with Elder's methodology
+    indicator_system = FlexibleTechnicalIndicators(resampled_data, custom_config, low_timeframe)
 
     # Create complete dataset
     enhanced_data = indicator_system.create_complete_dataset()
@@ -588,67 +857,84 @@ def create_enhanced_dataset(resampled_data: pd.DataFrame,
     return enhanced_data, summary
 
 
-# Example usage and configuration
+# Example usage with Elder's methodology
 def example_usage(resampled_data):
     """
-    Example of how to use with different timeframe configurations
+    Example of how to use with Elder's triple screen methodology
     """
-    config_30min_4h_24h = {
-        # 30min base indicators
+
+    # Configuration for Elder's approach with 30min base indicators
+    elder_config = {
+        # Base indicators calculated on 30min data (Elder's intermediate timeframe)
         'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
+        'sma_periods': {'short': 20, 'medium': 50, 'long': 200},
         'rsi_period': 14,
         'macd_params': {'fast': 12, 'slow': 26, 'signal': 9},
+        'bb_period': 20,
+        'bb_std': 2,
 
-        # 4H indicators (uses actual 4H closes)
-        'hourly_periods': {
-            'short': 6,  # 6 * 4H periods
-            'medium': 24,  # 24 * 4H periods
-            'long': 72  # 72 * 4H periods
+        # Higher timeframe periods (for trend analysis)
+        'daily_periods': {'short': 5, 'medium': 20, 'long': 50},
+        'hourly_periods': {'short': 6, 'medium': 24, 'long': 72},
+
+        # CUSUM parameters for change detection
+        'cusum_config': {
+            'threshold': 1.5,  # More sensitive for 30min data
+            'drift': 0.3,
+            'reset_period': 48  # Reset every 24 hours (48 * 30min)
         },
 
-        # 24H/Daily indicators (uses actual daily closes)
-        'daily_periods': {
-            'short': 5,  # 5 actual days
-            'medium': 20,  # 20 actual days
-            'long': 50  # 50 actual days
+        # Bollinger Band crossing parameters
+        'bb_crossing_config': {
+            'lookback_periods': 2,  # 1 hour confirmation for 30min bars
+            'min_distance_pct': 0.5  # More sensitive
         },
 
-        'intraday_periods': {'short': 12, 'medium': 26, 'long': 50},
-    }
-    # Custom configuration example
-    custom_config = {
-        # For 2H instead of 4H, modify your resampler first, then:
-        'hourly_periods': {'short': 12, 'medium': 48, 'long': 168},  # 2H-based periods
-
-        # Custom daily periods (uses actual daily closes)
-        'daily_periods': {'short': 7, 'medium': 21, 'long': 50},  # 7, 21, 50 DAYS
-
-        # More sensitive event detection
+        # Enhanced event detection
         'event_config': {
-            'vol_breakout_threshold': 2.0,  # More sensitive
-            'outlier_threshold': 2.0,  # More sensitive
-            'momentum_regime_threshold': 0.2,  # More sensitive
+            'vol_breakout_threshold': 1.5,  # More sensitive
+            'outlier_threshold': 2.0,
+            'momentum_regime_threshold': 0.25,
         }
     }
 
-    print("Enhanced Technical Indicators System")
-    print("====================================")
-    print("Uses 'ta' library for standard indicators")
-    print("Focuses on multi-timeframe alignment and normalization")
-    print("Includes López de Prado style relative indicators")
-    print("Integrates Elder's triple screen methodology")
-    print("Provides comprehensive event detection")
+    print("Enhanced Technical Indicators System with Elder's Methodology")
+    print("============================================================")
+    print("✓ Base indicators calculated on 30min actual data (Elder's intermediate TF)")
+    print("✓ Results presented at 5min intervals for real-time monitoring")
+    print("✓ Higher timeframe context for trend analysis")
+    print("✓ CUSUM change detection")
+    print("✓ Bollinger Band crossing events")
+    print("✓ Volume-Price divergence detection")
+    print("✓ Momentum regime change detection")
 
-    # Usage:
-    enhanced_data, summary = create_enhanced_dataset(resampled_data, config_30min_4h_24h)
+    # Create enhanced dataset with Elder's methodology
+    enhanced_data, summary = create_enhanced_dataset(
+        resampled_data,
+        elder_config,
+        low_timeframe="30min"  # This is key for Elder's approach
+    )
 
     return enhanced_data, summary
 
 
-data = pd.read_csv('resampled5mEE.csv')[:10000]
+# Usage example
+
+    # Load your resampled data
+data = pd.read_csv('resampled5mEE.csv')
+
+# Create enhanced dataset with Elder's methodology
 indicated, summ = example_usage(data)
-# indicated.to_csv('indicatedEE.csv', index=False)
+
+# Save results
+# indicated.to_csv('indicatedEE_elder.csv', index=False)
+
+print("Dataset created successfully!")
 print(indicated)
-for i in indicated.columns:
-    print(i)
-print(summ)
+print("\nColumn names:")
+for i, col in enumerate(indicated.columns):
+    print(f"{i + 1:3d}. {col}")
+
+print(f"\nSummary Statistics:")
+for key, value in summ.items():
+    print(f"{key}: {value}")
