@@ -8,12 +8,11 @@ from functools import partial
 from indicators import indicated
 
 warnings.filterwarnings('ignore')
-# pd.set_option('display.max_columns', None)
 
 
-class TripleBarrierLabeling:
+class MultiEventTripleBarrierLabeling:
     """
-    Simplified Triple Barrier Labeling System
+    Enhanced Triple Barrier Labeling System with Multi-Event Support
     """
 
     def __init__(self, data: pd.DataFrame):
@@ -24,11 +23,7 @@ class TripleBarrierLabeling:
             data: DataFrame from indicators.py with events and technical indicators
         """
         self.data = data.copy()
-
-        # Validate required columns
         self._validate_data()
-
-        # Detect available event types
         self.available_events = self._detect_available_events()
         print(f"Available event types: {self.available_events}")
 
@@ -40,7 +35,6 @@ class TripleBarrierLabeling:
         if missing:
             raise ValueError(f"Missing required price columns: {missing}")
 
-        # Check for datetime index
         if not isinstance(self.data.index, pd.DatetimeIndex):
             try:
                 self.data.index = pd.to_datetime(self.data.index)
@@ -54,115 +48,196 @@ class TripleBarrierLabeling:
 
         for col in self.data.columns:
             if any(pattern in col for pattern in event_patterns):
-                if col != 'event_type':  # event_type is categorical, not boolean
+                if col != 'event_type':
                     available.append(col)
 
         return available
 
-    def get_events_to_label(self, event_columns: Union[str, List[str], None] = None) -> pd.Series:
+    def get_events_for_labeling(self,
+                                event_selection: Union[str, List[str], Dict[str, Union[str, List[str]]]],
+                                mode: Literal['individual', 'combined', 'simultaneous'] = 'individual') -> Dict[
+        str, pd.Series]:
         """
-        Get events that should be labeled - SIMPLIFIED VERSION
+        Get events for labeling with flexible selection modes
 
         Args:
-            event_columns:
-                - None: Use 'any_event' if available, otherwise all event columns
-                - str: Use specific event column (e.g., 'outlier_event')
-                - List[str]: Combine multiple event columns
+            event_selection:
+                - str: Single event type (e.g., 'outlier_event')
+                - List[str]: Multiple events for combined or individual processing
+                - Dict: Custom event combinations {label_name: event_columns}
+            mode:
+                - 'individual': Label each event type separately
+                - 'combined': Merge all events into one label
+                - 'simultaneous': Only label when multiple events occur together
+
+        Returns:
+            Dict mapping label names to event indices
         """
+        result = {}
 
-        if event_columns is None:
-            # Default behavior: use any_event if available
-            if 'any_event' in self.data.columns:
-                print("Using 'any_event' column")
-                return self.data.index[self.data['any_event'] == True]
+        if isinstance(event_selection, str):
+            # Single event type
+            if event_selection in self.data.columns:
+                events = self.data.index[self.data[event_selection] == True]
+                result[f"{event_selection}_label"] = events
+                print(f"Found {len(events)} events in '{event_selection}'")
             else:
-                # Fallback: combine all available event columns
-                print("No 'any_event' found, combining all event columns")
-                event_columns = [col for col in self.available_events if col != 'any_event']
+                print(f"Warning: Event column '{event_selection}' not found")
 
-        # Convert single string to list
-        if isinstance(event_columns, str):
-            event_columns = [event_columns]
+        elif isinstance(event_selection, list):
+            if mode == 'individual':
+                # Each event type gets its own label
+                for event_type in event_selection:
+                    if event_type in self.data.columns:
+                        events = self.data.index[self.data[event_type] == True]
+                        result[f"{event_type}_label"] = events
+                        print(f"Found {len(events)} events in '{event_type}'")
+                    else:
+                        print(f"Warning: Event column '{event_type}' not found")
 
-        # Combine specified event types
-        event_mask = pd.Series(False, index=self.data.index)
+            elif mode == 'combined':
+                # Combine all events into one label
+                event_mask = pd.Series(False, index=self.data.index)
+                valid_events = []
 
-        for event_type in event_columns:
-            if event_type in self.data.columns:
-                count = (self.data[event_type] == True).sum()
-                print(f"Found {count} events in '{event_type}'")
-                event_mask |= (self.data[event_type] == True)
-            else:
-                print(f"Warning: Event column '{event_type}' not found")
+                for event_type in event_selection:
+                    if event_type in self.data.columns:
+                        count = (self.data[event_type] == True).sum()
+                        print(f"Found {count} events in '{event_type}'")
+                        event_mask |= (self.data[event_type] == True)
+                        valid_events.append(event_type)
+                    else:
+                        print(f"Warning: Event column '{event_type}' not found")
 
-        total_events = event_mask.sum()
-        print(f"Total events to label: {total_events}")
-        return self.data.index[event_mask]
+                if valid_events:
+                    label_name = "_".join([e.replace('_event', '') for e in valid_events]) + "_combined_label"
+                    result[label_name] = self.data.index[event_mask]
+                    print(f"Total combined events: {event_mask.sum()}")
 
-    def calculate_barriers(self,
-                           events: pd.Series,
-                           profit_take: float = 0.02,
-                           stop_loss: float = 0.015,
-                           holding_days: float = 1.0,
-                           use_dynamic: bool = True,
-                           volatility_multiplier: float = 2.0) -> pd.DataFrame:
+            elif mode == 'simultaneous':
+                # Only events that occur simultaneously
+                if len(event_selection) < 2:
+                    raise ValueError("Simultaneous mode requires at least 2 event types")
+
+                # Find simultaneous events
+                simultaneous_mask = pd.Series(True, index=self.data.index)
+                valid_events = []
+
+                for event_type in event_selection:
+                    if event_type in self.data.columns:
+                        simultaneous_mask &= (self.data[event_type] == True)
+                        valid_events.append(event_type)
+                    else:
+                        print(f"Warning: Event column '{event_type}' not found")
+                        simultaneous_mask = pd.Series(False, index=self.data.index)
+                        break
+
+                if valid_events and simultaneous_mask.sum() > 0:
+                    label_name = "_".join([e.replace('_event', '') for e in valid_events]) + "_simultaneous_label"
+                    result[label_name] = self.data.index[simultaneous_mask]
+                    print(f"Found {simultaneous_mask.sum()} simultaneous events")
+                else:
+                    print("No simultaneous events found")
+
+        elif isinstance(event_selection, dict):
+            # Custom combinations
+            for label_name, event_columns in event_selection.items():
+                if isinstance(event_columns, str):
+                    event_columns = [event_columns]
+
+                event_mask = pd.Series(False, index=self.data.index)
+                valid_events = []
+
+                for event_type in event_columns:
+                    if event_type in self.data.columns:
+                        event_mask |= (self.data[event_type] == True)
+                        valid_events.append(event_type)
+                    else:
+                        print(f"Warning: Event column '{event_type}' not found")
+
+                if valid_events:
+                    result[label_name] = self.data.index[event_mask]
+                    print(f"Custom label '{label_name}': {event_mask.sum()} events")
+
+        return result
+
+    def calculate_barriers_for_events(self,
+                                      events_dict: Dict[str, pd.Series],
+                                      barrier_params: Dict[str, Dict] = None,
+                                      default_params: Dict = None) -> Dict[str, pd.DataFrame]:
         """
-        Calculate barriers for events - SIMPLIFIED VERSION
+        Calculate barriers for multiple event types with different parameters
 
         Args:
-            events: Event timestamps
-            profit_take: Static profit take level (e.g., 0.02 = 2%)
-            stop_loss: Static stop loss level (e.g., 0.015 = 1.5%)
-            holding_days: Vertical barrier in days
-            use_dynamic: If True, use ATR-based dynamic sizing
-            volatility_multiplier: Multiplier for ATR-based barriers
+            events_dict: Dictionary mapping label names to event indices
+            barrier_params: Custom parameters per event type
+            default_params: Default parameters for all event types
         """
-        barriers = pd.DataFrame(index=events)
+        if default_params is None:
+            default_params = {
+                'profit_take': 0.02,
+                'stop_loss': 0.015,
+                'holding_days': 1.0,
+                'use_dynamic': True,
+                'volatility_multiplier': 2.0
+            }
 
-        if use_dynamic and 'ATR_pct' in self.data.columns:
-            print("Using dynamic ATR-based barriers")
-            # Get ATR for dynamic sizing
-            atr_values = self.data.loc[events, 'ATR_pct'] / 100  # Convert percentage to decimal
+        if barrier_params is None:
+            barrier_params = {}
 
-            # Dynamic barriers
-            barriers['profit_take'] = atr_values * volatility_multiplier
-            barriers['stop_loss'] = atr_values * (volatility_multiplier * 0.75)  # Slightly tighter stop loss
+        barriers_dict = {}
 
-            # Ensure minimum levels
-            barriers['profit_take'] = barriers['profit_take'].clip(lower=profit_take / 2)
-            barriers['stop_loss'] = barriers['stop_loss'].clip(lower=stop_loss / 2)
+        for label_name, events in events_dict.items():
+            if len(events) == 0:
+                continue
 
-        else:
-            print("Using static barriers")
-            # Static barriers
-            barriers['profit_take'] = profit_take
-            barriers['stop_loss'] = stop_loss
+            # Get parameters for this event type
+            params = default_params.copy()
+            if label_name in barrier_params:
+                params.update(barrier_params[label_name])
 
-        # Calculate vertical barrier timestamps
-        vertical_timedelta = pd.Timedelta(days=holding_days)
-        barriers['vertical_barrier'] = events + vertical_timedelta
+            barriers = pd.DataFrame(index=events)
 
-        # Ensure vertical barriers don't exceed data range
-        max_date = self.data.index.max()
-        barriers['vertical_barrier'] = barriers['vertical_barrier'].clip(upper=max_date)
+            # Dynamic or static barriers
+            if params['use_dynamic'] and 'ATR_pct' in self.data.columns:
+                print(f"Using dynamic barriers for {label_name}")
+                atr_values = self.data.loc[events, 'ATR_pct'] / 100
 
-        return barriers
+                barriers['profit_take'] = atr_values * params['volatility_multiplier']
+                barriers['stop_loss'] = atr_values * (params['volatility_multiplier'] * 0.75)
+
+                # Minimum levels
+                barriers['profit_take'] = barriers['profit_take'].clip(lower=params['profit_take'] / 2)
+                barriers['stop_loss'] = barriers['stop_loss'].clip(lower=params['stop_loss'] / 2)
+            else:
+                print(f"Using static barriers for {label_name}")
+                barriers['profit_take'] = params['profit_take']
+                barriers['stop_loss'] = params['stop_loss']
+
+            # Vertical barriers
+            vertical_timedelta = pd.Timedelta(days=params['holding_days'])
+            barriers['vertical_barrier'] = events + vertical_timedelta
+
+            max_date = self.data.index.max()
+            barriers['vertical_barrier'] = barriers['vertical_barrier'].clip(upper=max_date)
+
+            barriers_dict[label_name] = barriers
+
+        return barriers_dict
 
     def apply_triple_barrier_single(self, event_info: Tuple) -> Dict:
         """Apply triple barrier method to a single event"""
-        event_idx, barriers_row = event_info
+        event_idx, barriers_row, label_name = event_info
 
         try:
-            # Get price path from event start to vertical barrier
             start_price = self.data.loc[event_idx, 'Close']
             vertical_barrier = barriers_row['vertical_barrier']
-
-            # Get the price path
             path_data = self.data.loc[event_idx:vertical_barrier]
 
             if len(path_data) <= 1:
                 return {
                     'event_idx': event_idx,
+                    'label_name': label_name,
                     'label': 0,
                     'barrier_touched': 'vertical',
                     'touch_time': vertical_barrier,
@@ -170,51 +245,47 @@ class TripleBarrierLabeling:
                     'holding_period_hours': 0.0
                 }
 
-            # Calculate returns from entry price
+            # Calculate returns
             path_high_returns = (path_data['High'] / start_price) - 1
             path_low_returns = (path_data['Low'] / start_price) - 1
 
-            # Define barriers
+            # Barriers
             profit_take_level = barriers_row['profit_take']
-            stop_loss_level = -barriers_row['stop_loss']  # Negative for stop loss
+            stop_loss_level = -barriers_row['stop_loss']
 
-            # Find first barrier touch using High/Low for intrabar precision
+            # Find touches
             profit_touches = path_high_returns >= profit_take_level
             loss_touches = path_low_returns <= stop_loss_level
 
             profit_touch_times = path_data.index[profit_touches]
             loss_touch_times = path_data.index[loss_touches]
 
-            # Determine which barrier was hit first
             first_profit_touch = profit_touch_times[0] if len(profit_touch_times) > 0 else pd.NaT
             first_loss_touch = loss_touch_times[0] if len(loss_touch_times) > 0 else pd.NaT
 
-            # Handle NaT comparisons
+            # Determine outcome
             if pd.isna(first_profit_touch) and pd.isna(first_loss_touch):
-                # No barrier touched, vertical barrier wins
                 label = 0
                 barrier_touched = 'vertical'
                 touch_time = vertical_barrier
                 return_achieved = (path_data['Close'].iloc[-1] / start_price) - 1
             elif pd.isna(first_loss_touch) or (
                     not pd.isna(first_profit_touch) and first_profit_touch <= first_loss_touch):
-                # Profit take hit first
                 label = 1
                 barrier_touched = 'profit_take'
                 touch_time = first_profit_touch
                 return_achieved = profit_take_level
             else:
-                # Stop loss hit first
                 label = 0
                 barrier_touched = 'stop_loss'
                 touch_time = first_loss_touch
                 return_achieved = stop_loss_level
 
-            # Calculate holding period
-            holding_period = (touch_time - event_idx).total_seconds() / 3600  # Hours
+            holding_period = (touch_time - event_idx).total_seconds() / 3600
 
             return {
                 'event_idx': event_idx,
+                'label_name': label_name,
                 'label': label,
                 'barrier_touched': barrier_touched,
                 'touch_time': touch_time,
@@ -223,9 +294,10 @@ class TripleBarrierLabeling:
             }
 
         except Exception as e:
-            print(f"Error processing event {event_idx}: {e}")
+            print(f"Error processing event {event_idx} for {label_name}: {e}")
             return {
                 'event_idx': event_idx,
+                'label_name': label_name,
                 'label': 0,
                 'barrier_touched': 'error',
                 'touch_time': event_idx,
@@ -233,199 +305,273 @@ class TripleBarrierLabeling:
                 'holding_period_hours': 0.0
             }
 
-    def apply_triple_barriers(self, events: pd.Series, barriers: pd.DataFrame,
-                              use_parallel: bool = False) -> pd.DataFrame:
-        """Apply triple barrier method to all events"""
-        print(f"Applying triple barriers to {len(events)} events...")
+    def apply_multi_barriers(self, events_dict: Dict[str, pd.Series],
+                             barriers_dict: Dict[str, pd.DataFrame],
+                             use_parallel: bool = False) -> Dict[str, pd.DataFrame]:
+        """Apply triple barriers to multiple event types"""
+        results_dict = {}
 
-        # Prepare event data for processing
-        event_data = [(event_idx, barriers.loc[event_idx]) for event_idx in events]
+        for label_name in events_dict.keys():
+            if label_name not in barriers_dict:
+                continue
 
-        if use_parallel and len(events) > 1000:
-            # Parallel processing for large datasets
-            num_threads = min(4, mp.cpu_count())
-            print(f"Using parallel processing with {num_threads} threads")
+            events = events_dict[label_name]
+            barriers = barriers_dict[label_name]
 
-            with mp.Pool(processes=num_threads) as pool:
-                results = list(tqdm(
-                    pool.imap(self.apply_triple_barrier_single, event_data),
-                    total=len(event_data),
-                    desc="Processing events"
-                ))
-        else:
-            # Sequential processing
-            results = []
-            for event_info in tqdm(event_data, desc="Processing events"):
-                results.append(self.apply_triple_barrier_single(event_info))
+            print(f"Processing {len(events)} events for {label_name}...")
 
-        # Convert results to DataFrame
-        results_df = pd.DataFrame(results)
-        results_df.set_index('event_idx', inplace=True)
+            event_data = [(event_idx, barriers.loc[event_idx], label_name) for event_idx in events]
 
-        return results_df
+            if use_parallel and len(events) > 1000:
+                num_threads = min(4, mp.cpu_count())
+                with mp.Pool(processes=num_threads) as pool:
+                    results = list(tqdm(
+                        pool.imap(self.apply_triple_barrier_single, event_data),
+                        total=len(event_data),
+                        desc=f"Processing {label_name}"
+                    ))
+            else:
+                results = []
+                for event_info in tqdm(event_data, desc=f"Processing {label_name}"):
+                    results.append(self.apply_triple_barrier_single(event_info))
 
-    def create_labeled_dataset(self,
-                               event_columns: Union[str, List[str], None] = None,
-                               profit_take: float = 0.02,
-                               stop_loss: float = 0.015,
-                               holding_days: float = 1.0,
-                               use_dynamic: bool = True,
-                               volatility_multiplier: float = 2.0,
-                               use_parallel: bool = False) -> pd.DataFrame:
+            results_df = pd.DataFrame(results)
+            results_df.set_index('event_idx', inplace=True)
+            results_dict[label_name] = results_df
+
+        return results_dict
+
+    def create_multi_labeled_dataset(self,
+                                     event_selection: Union[str, List[str], Dict[str, Union[str, List[str]]]],
+                                     mode: Literal['individual', 'combined', 'simultaneous'] = 'individual',
+                                     barrier_params: Dict[str, Dict] = None,
+                                     default_params: Dict = None,
+                                     use_parallel: bool = False) -> pd.DataFrame:
         """
-        SIMPLIFIED main function to create labeled dataset with triple barriers
+        Main function to create multi-labeled dataset
 
         Args:
-            event_columns: Which events to label (None = any_event, str = specific column, list = multiple columns)
-            profit_take: Profit take level (default 2%)
-            stop_loss: Stop loss level (default 1.5%)
-            holding_days: Vertical barrier in days (default 1 day)
-            use_dynamic: Use ATR-based dynamic barriers (default True)
-            volatility_multiplier: Multiplier for ATR (default 2.0)
-            use_parallel: Use parallel processing for large datasets (default False)
+            event_selection: Events to label (str, list, or dict)
+            mode: How to handle multiple events ('individual', 'combined', 'simultaneous')
+            barrier_params: Custom parameters per event type
+            default_params: Default parameters for all events
+            use_parallel: Use parallel processing
         """
 
-        # Get events to label
-        events = self.get_events_to_label(event_columns)
+        # Get events for labeling
+        events_dict = self.get_events_for_labeling(event_selection, mode)
 
-        if len(events) == 0:
+        if not events_dict:
             print("No events found to label!")
             return self.data.copy()
 
         # Calculate barriers
-        barriers = self.calculate_barriers(
-            events, profit_take, stop_loss, holding_days,
-            use_dynamic, volatility_multiplier
-        )
+        barriers_dict = self.calculate_barriers_for_events(events_dict, barrier_params, default_params)
 
-        # Apply triple barriers
-        barrier_results = self.apply_triple_barriers(events, barriers, use_parallel)
+        # Apply barriers
+        results_dict = self.apply_multi_barriers(events_dict, barriers_dict, use_parallel)
 
-        # Add results to original dataset
+        # Create labeled dataset
         labeled_data = self.data.copy()
 
-        # Initialize label columns
-        labeled_data['triple_barrier_label'] = np.nan
-        labeled_data['barrier_touched'] = None
-        labeled_data['barrier_touch_time'] = pd.NaT
-        labeled_data['barrier_return'] = np.nan
-        labeled_data['holding_period_hours'] = np.nan
+        # Add columns for each label type
+        for label_name in results_dict.keys():
+            labeled_data[label_name] = np.nan
+            labeled_data[f"{label_name.replace('_label', '')}_barrier_touched"] = None
+            labeled_data[f"{label_name.replace('_label', '')}_touch_time"] = pd.NaT
+            labeled_data[f"{label_name.replace('_label', '')}_return"] = np.nan
+            labeled_data[f"{label_name.replace('_label', '')}_holding_hours"] = np.nan
 
-        # Fill in the results
-        for event_idx in barrier_results.index:
-            result = barrier_results.loc[event_idx]
-            labeled_data.loc[event_idx, 'triple_barrier_label'] = result['label']
-            labeled_data.loc[event_idx, 'barrier_touched'] = result['barrier_touched']
-            labeled_data.loc[event_idx, 'barrier_touch_time'] = result['touch_time']
-            labeled_data.loc[event_idx, 'barrier_return'] = result['return_achieved']
-            labeled_data.loc[event_idx, 'holding_period_hours'] = result['holding_period_hours']
+            # Fill results
+            results = results_dict[label_name]
+            for event_idx in results.index:
+                result = results.loc[event_idx]
+                labeled_data.loc[event_idx, label_name] = result['label']
+                labeled_data.loc[event_idx, f"{label_name.replace('_label', '')}_barrier_touched"] = result[
+                    'barrier_touched']
+                labeled_data.loc[event_idx, f"{label_name.replace('_label', '')}_touch_time"] = result['touch_time']
+                labeled_data.loc[event_idx, f"{label_name.replace('_label', '')}_return"] = result['return_achieved']
+                labeled_data.loc[event_idx, f"{label_name.replace('_label', '')}_holding_hours"] = result[
+                    'holding_period_hours']
 
         return labeled_data
 
-    def get_summary(self, labeled_data: pd.DataFrame) -> Dict:
-        """Generate summary statistics of the labeling process"""
+    def get_multi_summary(self, labeled_data: pd.DataFrame) -> Dict:
+        """Generate summary for all label types"""
+        summary = {}
 
-        # Get labeled events only
-        labeled_events = labeled_data.dropna(subset=['triple_barrier_label'])
+        # Find all label columns
+        label_columns = [col for col in labeled_data.columns if col.endswith('_label')]
 
-        if len(labeled_events) == 0:
-            return {"error": "No labeled events found"}
+        for label_col in label_columns:
+            event_type = label_col.replace('_label', '')
+            labeled_events = labeled_data.dropna(subset=[label_col])
 
-        summary = {
-            'total_events_labeled': len(labeled_events),
-            'label_distribution': labeled_events['triple_barrier_label'].value_counts().to_dict(),
-            'barrier_hit_distribution': labeled_events['barrier_touched'].value_counts().to_dict(),
-            'average_holding_period_hours': labeled_events['holding_period_hours'].mean(),
-            'average_return_achieved': labeled_events['barrier_return'].mean(),
-            'success_rate': (labeled_events['triple_barrier_label'] == 1).mean(),
-        }
+            if len(labeled_events) == 0:
+                continue
 
-        # Add return statistics by label
-        for label in [0, 1]:
-            label_data = labeled_events[labeled_events['triple_barrier_label'] == label]
-            if len(label_data) > 0:
-                summary[f'avg_return_label_{label}'] = label_data['barrier_return'].mean()
-                summary[f'avg_holding_period_label_{label}'] = label_data['holding_period_hours'].mean()
+            summary[event_type] = {
+                'total_events_labeled': len(labeled_events),
+                'label_distribution': labeled_events[label_col].value_counts().to_dict(),
+                'success_rate': (labeled_events[label_col] == 1).mean(),
+                'average_holding_period_hours': labeled_events[f"{event_type}_holding_hours"].mean(),
+                'average_return_achieved': labeled_events[f"{event_type}_return"].mean(),
+            }
+
+            # Barrier hit distribution
+            barrier_col = f"{event_type}_barrier_touched"
+            if barrier_col in labeled_data.columns:
+                summary[event_type]['barrier_hit_distribution'] = labeled_events[barrier_col].value_counts().to_dict()
 
         return summary
 
 
 # SIMPLIFIED USAGE FUNCTIONS
 
-def label_events(data: pd.DataFrame,
-                 event_columns: Union[str, List[str], None] = None,
-                 profit_take: float = 0.02,
-                 stop_loss: float = 0.015,
-                 holding_days: float = 1.0,
-                 use_dynamic: bool = True,
-                 use_parallel: bool = False) -> Tuple[pd.DataFrame, Dict]:
+def label_multiple_events(data: pd.DataFrame,
+                          event_selection: Union[str, List[str], Dict[str, Union[str, List[str]]]],
+                          mode: Literal['individual', 'combined', 'simultaneous'] = 'individual',
+                          barrier_params: Dict[str, Dict] = None,
+                          default_params: Dict = None,
+                          use_parallel: bool = False) -> Tuple[pd.DataFrame, Dict]:
     """
-    SUPER SIMPLE function to label events with triple barriers
+    Enhanced function to label multiple events with flexible options
 
-    Args:
-        data: Your enhanced dataset from indicators.py
-        event_columns:
-            - None: Use any_event (default)
-            - 'outlier_event': Use only outlier events
-            - ['outlier_event', 'momentum_regime_event']: Use multiple event types
-        profit_take: Profit target as decimal (0.02 = 2%)
-        stop_loss: Stop loss as decimal (0.015 = 1.5%)
-        holding_days: How long to hold before giving up (days)
-        use_dynamic: Use ATR for dynamic barrier sizing
-        use_parallel: Use parallel processing (for large datasets)
+    Examples:
+    --------
+    # Individual labeling
+    labeled_data, summary = label_multiple_events(
+        data,
+        ['outlier_event', 'momentum_regime_event'],
+        mode='individual'
+    )
 
-    Returns:
-        (labeled_dataset, summary_stats)
+    # Combined labeling
+    labeled_data, summary = label_multiple_events(
+        data,
+        ['outlier_event', 'momentum_regime_event'],
+        mode='combined'
+    )
+
+    # Simultaneous events only
+    labeled_data, summary = label_multiple_events(
+        data,
+        ['outlier_event', 'momentum_regime_event'],
+        mode='simultaneous'
+    )
+
+    # Custom combinations
+    labeled_data, summary = label_multiple_events(
+        data,
+        {
+            'high_vol_events': ['outlier_event', 'vpd_volatility_event'],
+            'momentum_events': 'momentum_regime_event'
+        }
+    )
+
+    # Different parameters per event type
+    barrier_params = {
+        'outlier_event_label': {'profit_take': 0.015, 'holding_days': 0.5},
+        'momentum_regime_event_label': {'profit_take': 0.03, 'holding_days': 2.0}
+    }
+    labeled_data, summary = label_multiple_events(
+        data,
+        ['outlier_event', 'momentum_regime_event'],
+        mode='individual',
+        barrier_params=barrier_params
+    )
     """
 
-    labeler = TripleBarrierLabeling(data)
+    if default_params is None:
+        default_params = {
+            'profit_take': 0.02,
+            'stop_loss': 0.015,
+            'holding_days': 1.0,
+            'use_dynamic': True,
+            'volatility_multiplier': 2.0
+        }
 
-    labeled_data = labeler.create_labeled_dataset(
-        event_columns=event_columns,
-        profit_take=profit_take,
-        stop_loss=stop_loss,
-        holding_days=holding_days,
-        use_dynamic=use_dynamic,
+    labeler = MultiEventTripleBarrierLabeling(data)
+
+    labeled_data = labeler.create_multi_labeled_dataset(
+        event_selection=event_selection,
+        mode=mode,
+        barrier_params=barrier_params,
+        default_params=default_params,
         use_parallel=use_parallel
     )
 
-    summary = labeler.get_summary(labeled_data)
+    summary = labeler.get_multi_summary(labeled_data)
 
     return labeled_data, summary
 
 
-# PRESET CONFIGURATIONS for common use cases
+# PRESET CONFIGURATIONS
 
-def quick_label_outliers(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
-    """Quick labeling for outlier events with tight barriers"""
-    return label_events(
+def label_all_events_individually(data: pd.DataFrame,
+                                  custom_params: Dict[str, Dict] = None) -> Tuple[pd.DataFrame, Dict]:
+    """Label all available events individually with optional custom parameters"""
+    labeler = MultiEventTripleBarrierLabeling(data)
+    available_events = labeler.available_events
+
+    return label_multiple_events(
         data,
-        event_columns='outlier_event',
-        profit_take=0.015,  # 1.5%
-        stop_loss=0.01,  # 1%
-        holding_days=0.5,  # 12 hours
-        use_dynamic=True
+        available_events,
+        mode='individual',
+        barrier_params=custom_params
     )
 
 
-def quick_label_momentum(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
-    """Quick labeling for momentum events with wider barriers"""
-    return label_events(
+def label_high_confidence_combinations(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Label events that occur simultaneously (high confidence signals)"""
+    return label_multiple_events(
         data,
-        event_columns='momentum_regime_event',
-        profit_take=0.03,  # 3%
-        stop_loss=0.02,  # 2%
-        holding_days=2.0,  # 2 days
-        use_dynamic=True
+        ['outlier_event', 'momentum_regime_event', 'vpd_volatility_event'],
+        mode='simultaneous'
     )
 
 
-def quick_label_all_events(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
-    """Quick labeling for all events"""
-    return label_events(
+def label_custom_strategies(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Example of custom event strategies with different parameters"""
+
+    custom_combinations = {
+        'scalping_events': ['outlier_event'],
+        'swing_events': ['momentum_regime_event'],
+        'volatility_breakout': ['vpd_volatility_event'],
+        'high_confidence_combo': ['outlier_event', 'momentum_regime_event']
+    }
+
+    custom_params = {
+        'scalping_events': {
+            'profit_take': 0.01,
+            'stop_loss': 0.008,
+            'holding_days': 0.25,
+            'volatility_multiplier': 1.5
+        },
+        'swing_events': {
+            'profit_take': 0.03,
+            'stop_loss': 0.02,
+            'holding_days': 3.0,
+            'volatility_multiplier': 2.5
+        },
+        'volatility_breakout': {
+            'profit_take': 0.025,
+            'stop_loss': 0.015,
+            'holding_days': 1.5,
+            'volatility_multiplier': 3.0
+        },
+        'high_confidence_combo': {
+            'profit_take': 0.04,
+            'stop_loss': 0.025,
+            'holding_days': 2.0,
+            'volatility_multiplier': 2.0
+        }
+    }
+
+    return label_multiple_events(
         data,
-        event_columns=None,  # Uses any_event
-        use_dynamic=True
+        custom_combinations,
+        barrier_params=custom_params
     )
 
 
@@ -433,46 +579,103 @@ def quick_label_all_events(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
 if __name__ == "__main__":
     enhanced_data = indicated
 
-    print("=== SIMPLIFIED USAGE EXAMPLES ===\n")
+    print("=== MULTI-EVENT LABELING EXAMPLES ===\n")
 
-    # Example 1: Just outlier events (should give you 5,853 events)
-    print("1. Labeling only outlier events:")
-    labeled_data, summary = label_events(
+    # Example 1: Individual event labeling
+    print("1. Individual event labeling:")
+    labeled_data1, summary1 = label_multiple_events(
         enhanced_data,
-        event_columns='outlier_event'
+        ['outlier_event', 'momentum_regime_event'],
+        mode='individual'
     )
-    print(labeled_data)
-    print(f"Events labeled: {summary['total_events_labeled']}")
-    print(f"Success rate: {summary['success_rate']:.1%}")
-    print(f"Label distribution: {summary['label_distribution']}\n")
+    print("Summary:", summary1)
+    print()
 
-    # Example 2: Multiple specific event types
-    print("2. Labeling outlier + momentum events:")
-    labeled_data2, summary2 = label_events(
+    # Example 2: Combined events
+    print("2. Combined event labeling:")
+    labeled_data2, summary2 = label_multiple_events(
         enhanced_data,
-        event_columns=['outlier_event', 'momentum_regime_event']
+        ['outlier_event', 'momentum_regime_event'],
+        mode='combined'
     )
-    print(labeled_data2)
-    print(f"Events labeled: {summary2['total_events_labeled']}")
-    print(f"Success rate: {summary2['success_rate']:.1%}\n")
+    print("Summary:", summary2)
+    print()
 
-    # Example 3: All events (any_event column)
-    print("3. Labeling all events:")
-    labeled_data3, summary3 = label_events(enhanced_data)
-    print(labeled_data3)
-    print(f"Events labeled: {summary3['total_events_labeled']}")
-    print(f"Success rate: {summary3['success_rate']:.1%}\n")
-
-    # Example 4: Custom parameters
-    print("4. Custom tight parameters for scalping:")
-    labeled_data4, summary4 = label_events(
+    # Example 3: Simultaneous events only
+    print("3. Simultaneous events labeling:")
+    labeled_data3, summary3 = label_multiple_events(
         enhanced_data,
-        event_columns='vpd_volatility_event',
-        profit_take=0.01,  # 1%
-        stop_loss=0.008,  # 0.8%
-        holding_days=0.25,  # 6 hours
-        use_dynamic=True
+        ['outlier_event', 'momentum_regime_event'],
+        mode='simultaneous'
     )
-    print(labeled_data4)
-    print(f"Events labeled: {summary4['total_events_labeled']}")
-    print(f"Success rate: {summary4['success_rate']:.1%}")
+    print("Summary:", summary3)
+    print()
+
+    # Example 4: Custom combinations with different parameters
+    print("4. Custom strategies:")
+    labeled_data4, summary4 = label_custom_strategies(enhanced_data)
+    print("Summary:", summary4)
+    print()
+
+    # Example 5: All events individually
+    print("5. All events individually:")
+    labeled_data5, summary5 = label_all_events_individually(enhanced_data)
+    print(labeled_data5)
+    print("Summary:", summary5)
+
+"""1. Multiple Labeling Modes:
+
+individual: Each event type gets its own separate label column
+combined: Multiple events merged into one label using OR logic
+simultaneous: Only label when multiple events occur at the same timestamp
+
+2. Flexible Event Selection:
+
+Single event: 'outlier_event'
+Multiple events: ['outlier_event', 'momentum_regime_event']
+Custom combinations: {'scalping_events': ['outlier_event'], 'swing_events': ['momentum_regime_event']}
+
+3. Per-Event Custom Parameters:
+You can specify different barrier parameters for each event type:
+pythonbarrier_params = {
+    'outlier_event_label': {'profit_take': 0.015, 'holding_days': 0.5},
+    'momentum_regime_event_label': {'profit_take': 0.03, 'holding_days': 2.0}
+}
+4. Enhanced Output:
+Instead of one triple_barrier_label column, you now get separate columns for each event type:
+
+outlier_event_label
+momentum_regime_event_label
+outlier_barrier_touched
+momentum_barrier_touched
+etc.
+
+Usage Examples
+Individual Labeling (most common):
+pythonlabeled_data, summary = label_multiple_events(
+    data, 
+    ['outlier_event', 'momentum_regime_event'], 
+    mode='individual'
+)
+Simultaneous Events Only (high confidence):
+pythonlabeled_data, summary = label_multiple_events(
+    data, 
+    ['outlier_event', 'momentum_regime_event'], 
+    mode='simultaneous'  # Only when both occur together
+)
+Custom Strategies with Different Parameters:
+pythoncustom_combinations = {
+    'scalping_events': ['outlier_event'],
+    'swing_events': ['momentum_regime_event']
+}
+
+custom_params = {
+    'scalping_events': {'profit_take': 0.01, 'holding_days': 0.25},
+    'swing_events': {'profit_take': 0.03, 'holding_days': 2.0}
+}
+
+labeled_data, summary = label_multiple_events(
+    data, 
+    custom_combinations,
+    barrier_params=custom_params
+)"""
