@@ -1024,19 +1024,23 @@ if __name__ == "__main__":
     print("\n=== SCRIPT EXECUTION COMPLETE ===")
     print("Use the preset functions or customize with label_multiple_events_theory_based()")
 
-data = indicated
-labeled_data, summary = label_multiple_events_theory_based(
-    data,
-    ['outlier_event', 'momentum_regime_event']
-)
+    print("GPT+++++++++++++++")
+    # Detect all event types dynamically
+    labeler = MultiEventTripleBarrierLabeling(indicated)
+    all_events = labeler.available_events
+    print(all_events)
 
-# Custom parameters
-barrier_params = {
-    'outlier_event_label': {
-        'volatility_multiplier': 1.5,
-        'min_reward_risk_ratio': 2.0
-    }
-}
+    # Run labeling: theory-based is ON by default
+    labeled_data, summary = label_multiple_events_theory_based(
+        indicated,
+        event_selection=all_events,  # e.g. ["outlier_event", "momentum_regime_event", ...]
+        mode="individual",           # one label column per event type -> "<event>_label"
+        use_parallel=True            # optional
+    )
+    # print(labeled_data)
+    print(summary)
+
+
 
 # 1. Theory-Based Barriers:
 #
