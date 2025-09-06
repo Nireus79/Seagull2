@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 
 class MultiEventTripleBarrierLabeling:
     """
-    Enhanced Triple Barrier Labeling System with Multi-Event Support
+    Enhanced Triple Barrier Labeling System with Multi-Event Support and Theory-Based Barriers
     """
 
     def __init__(self, data: pd.DataFrame):
@@ -161,26 +161,33 @@ class MultiEventTripleBarrierLabeling:
 
         return result
 
-    def calculate_barriers_for_events(self,
-                                      events_dict: Dict[str, pd.Series],
-                                      barrier_params: Dict[str, Dict] = None,
-                                      default_params: Dict = None) -> Dict[str, pd.DataFrame]:
+    def calculate_theory_based_barriers(self,
+                                        events_dict: Dict[str, pd.Series],
+                                        barrier_params: Dict[str, Dict] = None,
+                                        default_params: Dict = None,
+                                        commission_structure: Dict = None) -> Dict[str, pd.DataFrame]:
         """
-        Calculate barriers for multiple event types with different parameters
+        Calculate theory-based barriers with commission awareness
 
         Args:
             events_dict: Dictionary mapping label names to event indices
             barrier_params: Custom parameters per event type
             default_params: Default parameters for all event types
+            commission_structure: Commission and spread parameters
         """
         if default_params is None:
             default_params = {
-                'profit_take': 0.02,
-                'stop_loss': 0.015,
+                'volatility_multiplier': 2.0,
+                'stop_loss_multiplier': 1.2,
                 'holding_days': 1.0,
-                'use_dynamic': True,
-                'volatility_multiplier': 2.0
+                'use_theory_based': True,
+                'min_reward_risk_ratio': 1.5,
+                'volume_adjustment': True,
+                'regime_awareness': True
             }
+
+        if commission_structure is None:
+            commission_structure = self._get_kraken_commission_structure()
 
         if barrier_params is None:
             barrier_params = {}
@@ -198,21 +205,12 @@ class MultiEventTripleBarrierLabeling:
 
             barriers = pd.DataFrame(index=events)
 
-            # Dynamic or static barriers
-            if params['use_dynamic'] and 'ATR_pct' in self.data.columns:
-                print(f"Using dynamic barriers for {label_name}")
-                atr_values = self.data.loc[events, 'ATR_pct'] / 100
-
-                barriers['profit_take'] = atr_values * params['volatility_multiplier']
-                barriers['stop_loss'] = atr_values * (params['volatility_multiplier'] * 0.75)
-
-                # Minimum levels
-                barriers['profit_take'] = barriers['profit_take'].clip(lower=params['profit_take'] / 2)
-                barriers['stop_loss'] = barriers['stop_loss'].clip(lower=params['stop_loss'] / 2)
+            if params['use_theory_based']:
+                print(f"Using theory-based barriers for {label_name}")
+                barriers = self._calculate_theory_barriers(events, params, commission_structure)
             else:
-                print(f"Using static barriers for {label_name}")
-                barriers['profit_take'] = params['profit_take']
-                barriers['stop_loss'] = params['stop_loss']
+                print(f"Using simple barriers for {label_name}")
+                barriers = self._calculate_simple_barriers(events, params, commission_structure)
 
             # Vertical barriers
             vertical_timedelta = pd.Timedelta(days=params['holding_days'])
@@ -224,6 +222,159 @@ class MultiEventTripleBarrierLabeling:
             barriers_dict[label_name] = barriers
 
         return barriers_dict
+
+    def _get_kraken_commission_structure(self) -> Dict:
+        """Kraken commission structure (as of 2025) - Taker fees only"""
+        return {
+            'taker_fee': 0.0026,  # 0.26% for taker orders (standard trading)
+            'spread_estimate': 0.0005,  # ~0.05% typical spread for major pairs
+            'slippage_estimate': 0.0003,  # ~0.03% slippage estimate
+            'funding_cost_daily': 0.00005,  # ~0.005% daily funding if held overnight
+            'min_profit_multiplier': 2.5,  # Minimum profit should be 2.5x total costs
+        }
+
+    def _calculate_theory_barriers(self, events: pd.Series, params: Dict, commission: Dict) -> pd.DataFrame:
+        """Calculate theory-based adaptive barriers"""
+        barriers = pd.DataFrame(index=events)
+
+        for event_idx in events:
+            # Get market state at event time
+            current_vol = self._get_volatility_at_event(event_idx)
+            current_price = self.data.loc[event_idx, 'Close']
+            liquidity_factor = self._get_liquidity_factor(event_idx) if params['volume_adjustment'] else 1.0
+            regime_multiplier = self._get_regime_multiplier(event_idx) if params['regime_awareness'] else 1.0
+
+            # Calculate minimum profitable barriers (commission-aware)
+            min_profit_barrier = self._calculate_min_profit_barrier(current_price, commission)
+
+            # Theory-based volatility barriers
+            base_profit_barrier = current_vol * params['volatility_multiplier'] * regime_multiplier * liquidity_factor
+            base_stop_barrier = current_vol * params['stop_loss_multiplier'] * regime_multiplier * liquidity_factor
+
+            # Ensure barriers meet minimum profitability
+            profit_take = max(min_profit_barrier, base_profit_barrier)
+            stop_loss = max(min_profit_barrier * 0.6, base_stop_barrier)
+
+            # Ensure minimum reward/risk ratio
+            if profit_take / stop_loss < params['min_reward_risk_ratio']:
+                profit_take = stop_loss * params['min_reward_risk_ratio']
+
+            barriers.loc[event_idx, 'profit_take'] = profit_take
+            barriers.loc[event_idx, 'stop_loss'] = stop_loss
+
+        return barriers
+
+    def _calculate_simple_barriers(self, events: pd.Series, params: Dict, commission: Dict) -> pd.DataFrame:
+        """Calculate simple static barriers with commission awareness"""
+        barriers = pd.DataFrame(index=events)
+
+        # Calculate minimum profitable barriers (taker fees only)
+        min_profit_barrier = commission['taker_fee'] * 2 + commission['spread_estimate'] + commission[
+            'slippage_estimate']
+        min_profit_barrier *= commission['min_profit_multiplier']
+
+        # Static barriers with minimum profit enforcement
+        profit_take = max(min_profit_barrier, params.get('profit_take', 0.02))
+        stop_loss = max(min_profit_barrier * 0.6, params.get('stop_loss', 0.015))
+
+        # Ensure minimum reward/risk ratio
+        if profit_take / stop_loss < params['min_reward_risk_ratio']:
+            profit_take = stop_loss * params['min_reward_risk_ratio']
+
+        barriers['profit_take'] = profit_take
+        barriers['stop_loss'] = stop_loss
+
+        return barriers
+
+    def _get_volatility_at_event(self, event_idx) -> float:
+        """Get volatility measure at event time"""
+        if 'ATR_pct' in self.data.columns:
+            return self.data.loc[event_idx, 'ATR_pct'] / 100
+        else:
+            # Fallback: use rolling standard deviation
+            lookback_period = 20
+            end_idx = self.data.index.get_loc(event_idx)
+            start_idx = max(0, end_idx - lookback_period)
+
+            price_data = self.data.iloc[start_idx:end_idx + 1]['Close']
+            returns = price_data.pct_change().dropna()
+            return returns.std() if len(returns) > 5 else 0.02  # 2% fallback
+
+    def _get_liquidity_factor(self, event_idx) -> float:
+        """Adjust barriers based on liquidity (volume)"""
+        if 'Volume' not in self.data.columns:
+            return 1.0
+
+        current_volume = self.data.loc[event_idx, 'Volume']
+
+        # Calculate average volume over recent period
+        lookback_period = 50
+        end_idx = self.data.index.get_loc(event_idx)
+        start_idx = max(0, end_idx - lookback_period)
+
+        avg_volume = self.data.iloc[start_idx:end_idx + 1]['Volume'].mean()
+
+        if avg_volume == 0:
+            return 1.0
+
+        volume_ratio = current_volume / avg_volume
+
+        # Lower liquidity = wider barriers (higher multiplier)
+        if volume_ratio < 0.5:  # Low liquidity
+            return 1.4
+        elif volume_ratio > 2.0:  # High liquidity
+            return 0.8
+        else:  # Normal liquidity
+            return 1.0
+
+    def _get_regime_multiplier(self, event_idx) -> float:
+        """Adjust barriers based on volatility regime"""
+        current_vol = self._get_volatility_at_event(event_idx)
+
+        # Calculate long-term average volatility
+        lookback_period = 100
+        end_idx = self.data.index.get_loc(event_idx)
+        start_idx = max(0, end_idx - lookback_period)
+
+        # Get historical volatility
+        historical_vols = []
+        for i in range(start_idx, end_idx):
+            hist_idx = self.data.index[i]
+            vol = self._get_volatility_at_event(hist_idx)
+            historical_vols.append(vol)
+
+        if len(historical_vols) < 10:
+            return 1.0
+
+        avg_vol = np.mean(historical_vols)
+        vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1.0
+
+        # High volatility regime = wider barriers
+        if vol_ratio > 1.5:  # High volatility
+            return 1.3
+        elif vol_ratio < 0.7:  # Low volatility
+            return 0.8
+        else:  # Normal volatility
+            return 1.0
+
+    def _calculate_min_profit_barrier(self, current_price: float, commission: Dict) -> float:
+        """Calculate minimum profit needed to overcome all trading costs (taker fees only)"""
+        # Round-trip costs using taker fees for both entry and exit (standard trading)
+        entry_cost = commission['taker_fee']  # Market order entry
+        exit_cost = commission['taker_fee']  # Market order exit (standard approach)
+        spread_cost = commission['spread_estimate']
+        slippage_cost = commission['slippage_estimate']
+
+        # Total round-trip cost
+        total_cost = entry_cost + exit_cost + spread_cost + slippage_cost
+
+        # Add buffer for overnight funding if position held
+        funding_buffer = commission['funding_cost_daily']
+
+        # Minimum profit with safety multiplier
+        min_profit = (total_cost + funding_buffer) * commission['min_profit_multiplier']
+
+        return min_profit
 
     def apply_triple_barrier_single(self, event_info: Tuple) -> Dict:
         """Apply triple barrier method to a single event"""
@@ -365,8 +516,8 @@ class MultiEventTripleBarrierLabeling:
             print("No events found to label!")
             return self.data.copy()
 
-        # Calculate barriers
-        barriers_dict = self.calculate_barriers_for_events(events_dict, barrier_params, default_params)
+        # Calculate theory-based barriers with commission awareness
+        barriers_dict = self.calculate_theory_based_barriers(events_dict, barrier_params, default_params)
 
         # Apply barriers
         results_dict = self.apply_multi_barriers(events_dict, barriers_dict, use_parallel)
@@ -428,53 +579,64 @@ class MultiEventTripleBarrierLabeling:
 
 # SIMPLIFIED USAGE FUNCTIONS
 
-def label_multiple_events(data: pd.DataFrame,
-                          event_selection: Union[str, List[str], Dict[str, Union[str, List[str]]]],
-                          mode: Literal['individual', 'combined', 'simultaneous'] = 'individual',
-                          barrier_params: Dict[str, Dict] = None,
-                          default_params: Dict = None,
-                          use_parallel: bool = False) -> Tuple[pd.DataFrame, Dict]:
+def label_multiple_events_theory_based(data: pd.DataFrame,
+                                       event_selection: Union[str, List[str], Dict[str, Union[str, List[str]]]],
+                                       mode: Literal['individual', 'combined', 'simultaneous'] = 'individual',
+                                       barrier_params: Dict[str, Dict] = None,
+                                       default_params: Dict = None,
+                                       commission_structure: Dict = None,
+                                       use_parallel: bool = False) -> Tuple[pd.DataFrame, Dict]:
     """
-    Enhanced function to label multiple events with flexible options
+    Theory-based multi-event labeling with Kraken commission structure
+
+    Args:
+        data: Your enhanced dataset from indicators.py
+        event_selection: Events to label (str, list, or dict)
+        mode: How to handle multiple events ('individual', 'combined', 'simultaneous')
+        barrier_params: Custom parameters per event type
+        default_params: Default theory-based parameters
+        commission_structure: Trading costs (defaults to Kraken structure)
+        use_parallel: Use parallel processing
 
     Examples:
     --------
-    # Individual labeling
-    labeled_data, summary = label_multiple_events(
+    # Theory-based with Kraken commissions
+    labeled_data, summary = label_multiple_events_theory_based(
         data,
         ['outlier_event', 'momentum_regime_event'],
         mode='individual'
     )
 
-    # Combined labeling
-    labeled_data, summary = label_multiple_events(
-        data,
-        ['outlier_event', 'momentum_regime_event'],
-        mode='combined'
-    )
-
-    # Simultaneous events only
-    labeled_data, summary = label_multiple_events(
-        data,
-        ['outlier_event', 'momentum_regime_event'],
-        mode='simultaneous'
-    )
-
-    # Custom combinations
-    labeled_data, summary = label_multiple_events(
-        data,
-        {
-            'high_vol_events': ['outlier_event', 'vpd_volatility_event'],
-            'momentum_events': 'momentum_regime_event'
-        }
-    )
-
-    # Different parameters per event type
-    barrier_params = {
-        'outlier_event_label': {'profit_take': 0.015, 'holding_days': 0.5},
-        'momentum_regime_event_label': {'profit_take': 0.03, 'holding_days': 2.0}
+    # Custom commission structure (e.g., for different exchange)
+    custom_commission = {
+        'taker_fee': 0.002,     # 0.2%
+        'spread_estimate': 0.0003,
+        'slippage_estimate': 0.0002,
+        'min_profit_multiplier': 3.0
     }
-    labeled_data, summary = label_multiple_events(
+
+    labeled_data, summary = label_multiple_events_theory_based(
+        data,
+        'outlier_event',
+        commission_structure=custom_commission
+    )
+
+    # Event-specific theory parameters
+    barrier_params = {
+        'outlier_event_label': {
+            'volatility_multiplier': 1.5,      # Tighter for scalping
+            'min_reward_risk_ratio': 2.0,      # 2:1 minimum
+            'volume_adjustment': True,          # Adjust for liquidity
+            'regime_awareness': True            # Adjust for vol regime
+        },
+        'momentum_regime_event_label': {
+            'volatility_multiplier': 2.5,      # Wider for swing trades
+            'min_reward_risk_ratio': 1.8,
+            'holding_days': 2.0                # Longer holding period
+        }
+    }
+
+    labeled_data, summary = label_multiple_events_theory_based(
         data,
         ['outlier_event', 'momentum_regime_event'],
         mode='individual',
@@ -484,11 +646,23 @@ def label_multiple_events(data: pd.DataFrame,
 
     if default_params is None:
         default_params = {
-            'profit_take': 0.02,
-            'stop_loss': 0.015,
-            'holding_days': 1.0,
-            'use_dynamic': True,
-            'volatility_multiplier': 2.0
+            'volatility_multiplier': 2.0,  # ATR multiplier for profit take
+            'stop_loss_multiplier': 1.2,  # ATR multiplier for stop loss
+            'holding_days': 1.0,  # Maximum holding period
+            'use_theory_based': True,  # Use theory-based barriers
+            'min_reward_risk_ratio': 1.5,  # Minimum profit/loss ratio
+            'volume_adjustment': True,  # Adjust for liquidity
+            'regime_awareness': True  # Adjust for volatility regime
+        }
+
+    if commission_structure is None:
+        # Default to Kraken structure (taker fees only)
+        commission_structure = {
+            'taker_fee': 0.0026,  # 0.26% (standard trading)
+            'spread_estimate': 0.0005,  # ~0.05%
+            'slippage_estimate': 0.0003,  # ~0.03%
+            'funding_cost_daily': 0.00005,  # ~0.005% daily
+            'min_profit_multiplier': 2.5  # 2.5x costs minimum
         }
 
     labeler = MultiEventTripleBarrierLabeling(data)
@@ -503,179 +677,406 @@ def label_multiple_events(data: pd.DataFrame,
 
     summary = labeler.get_multi_summary(labeled_data)
 
+    # Add commission analysis to summary
+    summary['commission_analysis'] = {
+        'total_round_trip_cost': (commission_structure['taker_fee'] * 2 +
+                                  commission_structure['spread_estimate'] +
+                                  commission_structure['slippage_estimate']),
+        'min_profit_required': (commission_structure['taker_fee'] * 2 +
+                                commission_structure['spread_estimate'] +
+                                commission_structure['slippage_estimate']) * commission_structure[
+                                   'min_profit_multiplier'],
+        'daily_funding_cost': commission_structure['funding_cost_daily'],
+        'commission_structure_used': commission_structure
+    }
+
     return labeled_data, summary
 
 
-# PRESET CONFIGURATIONS
+# ENHANCED PRESET CONFIGURATIONS with Theory-Based Barriers
 
-def label_all_events_individually(data: pd.DataFrame,
-                                  custom_params: Dict[str, Dict] = None) -> Tuple[pd.DataFrame, Dict]:
-    """Label all available events individually with optional custom parameters"""
-    labeler = MultiEventTripleBarrierLabeling(data)
-    available_events = labeler.available_events
+def label_kraken_scalping_strategy(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Scalping strategy optimized for Kraken commission structure"""
 
-    return label_multiple_events(
-        data,
-        available_events,
-        mode='individual',
-        barrier_params=custom_params
-    )
-
-
-def label_high_confidence_combinations(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
-    """Label events that occur simultaneously (high confidence signals)"""
-    return label_multiple_events(
-        data,
-        ['outlier_event', 'momentum_regime_event', 'vpd_volatility_event'],
-        mode='simultaneous'
-    )
-
-
-def label_custom_strategies(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
-    """Example of custom event strategies with different parameters"""
-
-    custom_combinations = {
-        'scalping_events': ['outlier_event'],
-        'swing_events': ['momentum_regime_event'],
-        'volatility_breakout': ['vpd_volatility_event'],
-        'high_confidence_combo': ['outlier_event', 'momentum_regime_event']
-    }
-
-    custom_params = {
-        'scalping_events': {
-            'profit_take': 0.01,
-            'stop_loss': 0.008,
-            'holding_days': 0.25,
-            'volatility_multiplier': 1.5
-        },
-        'swing_events': {
-            'profit_take': 0.03,
-            'stop_loss': 0.02,
-            'holding_days': 3.0,
-            'volatility_multiplier': 2.5
-        },
-        'volatility_breakout': {
-            'profit_take': 0.025,
-            'stop_loss': 0.015,
-            'holding_days': 1.5,
-            'volatility_multiplier': 3.0
-        },
-        'high_confidence_combo': {
-            'profit_take': 0.04,
-            'stop_loss': 0.025,
-            'holding_days': 2.0,
-            'volatility_multiplier': 2.0
+    barrier_params = {
+        'outlier_event_label': {
+            'volatility_multiplier': 1.5,  # Tighter multiplier for scalping
+            'stop_loss_multiplier': 1.0,  # Tight stops
+            'holding_days': 0.5,  # 12 hours max
+            'min_reward_risk_ratio': 2.0,  # 2:1 minimum for scalping
+            'volume_adjustment': True,  # Critical for scalping
+            'regime_awareness': True
         }
     }
 
-    return label_multiple_events(
+    # Kraken-optimized commission structure (taker fees only)
+    kraken_commission = {
+        'taker_fee': 0.0026,  # 0.26% (standard trading)
+        'spread_estimate': 0.0005,
+        'slippage_estimate': 0.0002,  # Lower slippage assumption for scalping
+        'funding_cost_daily': 0.00005,
+        'min_profit_multiplier': 3.0  # Higher multiplier for scalping
+    }
+
+    return label_multiple_events_theory_based(
         data,
-        custom_combinations,
-        barrier_params=custom_params
+        'outlier_event',
+        barrier_params=barrier_params,
+        commission_structure=kraken_commission
     )
 
 
-# EXAMPLE USAGE
+def label_kraken_swing_strategy(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Swing trading strategy for Kraken with longer holding periods"""
+
+    barrier_params = {
+        'momentum_regime_event_label': {
+            'volatility_multiplier': 2.5,  # Wider for swing trades
+            'stop_loss_multiplier': 1.5,  # Wider stops
+            'holding_days': 3.0,  # 3 days max
+            'min_reward_risk_ratio': 1.8,  # Slightly lower for longer timeframe
+            'volume_adjustment': False,  # Less critical for swing trades
+            'regime_awareness': True
+        }
+    }
+
+    return label_multiple_events_theory_based(
+        data,
+        'momentum_regime_event',
+        barrier_params=barrier_params
+    )
+
+
+def label_kraken_multi_timeframe(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Multi-timeframe strategy with different parameters per event type"""
+
+    barrier_params = {
+        'outlier_event_label': {
+            'volatility_multiplier': 1.8,  # Scalping-style
+            'stop_loss_multiplier': 1.1,
+            'holding_days': 0.75,
+            'min_reward_risk_ratio': 2.2,
+            'volume_adjustment': True,
+            'regime_awareness': True
+        },
+        'momentum_regime_event_label': {
+            'volatility_multiplier': 2.3,  # Swing-style
+            'stop_loss_multiplier': 1.4,
+            'holding_days': 2.5,
+            'min_reward_risk_ratio': 1.7,
+            'volume_adjustment': False,
+            'regime_awareness': True
+        },
+        'vpd_volatility_event_label': {
+            'volatility_multiplier': 3.0,  # Breakout-style
+            'stop_loss_multiplier': 1.8,
+            'holding_days': 1.5,
+            'min_reward_risk_ratio': 1.6,
+            'volume_adjustment': True,
+            'regime_awareness': True
+        }
+    }
+
+    return label_multiple_events_theory_based(
+        data,
+        ['outlier_event', 'momentum_regime_event', 'vpd_volatility_event'],
+        mode='individual',
+        barrier_params=barrier_params
+    )
+
+
+def label_high_confidence_kraken(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """High-confidence simultaneous events with wider targets"""
+
+    barrier_params = {
+        'outlier_momentum_simultaneous_label': {
+            'volatility_multiplier': 2.8,  # Wider for high confidence
+            'stop_loss_multiplier': 1.6,
+            'holding_days': 2.0,
+            'min_reward_risk_ratio': 1.5,
+            'volume_adjustment': True,
+            'regime_awareness': True
+        }
+    }
+
+    return label_multiple_events_theory_based(
+        data,
+        ['outlier_event', 'momentum_regime_event'],
+        mode='simultaneous',
+        barrier_params=barrier_params
+    )
+
+
+# LEGACY COMPATIBILITY FUNCTIONS
+
+def label_events(data: pd.DataFrame,
+                 event_columns: Union[str, List[str], None] = None,
+                 profit_take: float = 0.02,
+                 stop_loss: float = 0.015,
+                 holding_days: float = 1.0,
+                 use_dynamic: bool = True,
+                 use_parallel: bool = False) -> Tuple[pd.DataFrame, Dict]:
+    """
+    Legacy compatibility function - converts old parameters to new theory-based approach
+    """
+
+    # Convert legacy parameters to theory-based
+    default_params = {
+        'volatility_multiplier': 2.0 if use_dynamic else None,
+        'stop_loss_multiplier': 1.2 if use_dynamic else None,
+        'holding_days': holding_days,
+        'use_theory_based': use_dynamic,
+        'profit_take': profit_take,  # Used if not theory-based
+        'stop_loss': stop_loss,  # Used if not theory-based
+        'min_reward_risk_ratio': 1.5,
+        'volume_adjustment': use_dynamic,
+        'regime_awareness': use_dynamic
+    }
+
+    # Handle legacy event selection
+    if event_columns is None:
+        event_selection = 'any_event'
+    elif isinstance(event_columns, str):
+        event_selection = event_columns
+    else:
+        event_selection = event_columns
+
+    return label_multiple_events_theory_based(
+        data,
+        event_selection,
+        mode='combined' if isinstance(event_columns, list) and len(event_columns) > 1 else 'individual',
+        default_params=default_params,
+        use_parallel=use_parallel
+    )
+
+
+def quick_label_outliers(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Quick labeling for outlier events with tight barriers"""
+    return label_kraken_scalping_strategy(data)
+
+
+def quick_label_momentum(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Quick labeling for momentum events with wider barriers"""
+    return label_kraken_swing_strategy(data)
+
+
+def quick_label_all_events(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """Quick labeling for all events"""
+    return label_multiple_events_theory_based(
+        data,
+        event_columns=None  # Uses any_event
+    )
+
+
+# EXAMPLE USAGE AND TESTING
 if __name__ == "__main__":
     enhanced_data = indicated
 
-    print("=== MULTI-EVENT LABELING EXAMPLES ===\n")
+    print("=== THEORY-BASED MULTI-EVENT LABELING WITH KRAKEN COMMISSIONS ===\n")
 
-    # Example 1: Individual event labeling
-    print("1. Individual event labeling:")
-    labeled_data1, summary1 = label_multiple_events(
-        enhanced_data,
-        ['outlier_event', 'momentum_regime_event'],
-        mode='individual'
-    )
-    print("Summary:", summary1)
+    # Example 1: Theory-based individual events with Kraken commissions
+    print("1. Theory-based individual event labeling (Kraken optimized):")
+    try:
+        labeled_data1, summary1 = label_multiple_events_theory_based(
+            enhanced_data,
+            ['outlier_event', 'momentum_regime_event'],
+            mode='individual'
+        )
+        print("Commission analysis:", summary1.get('commission_analysis', {}))
+        print("Summary:", {k: v for k, v in summary1.items() if k != 'commission_analysis'})
+    except Exception as e:
+        print(f"Error: {e}")
     print()
 
-    # Example 2: Combined events
-    print("2. Combined event labeling:")
-    labeled_data2, summary2 = label_multiple_events(
-        enhanced_data,
-        ['outlier_event', 'momentum_regime_event'],
-        mode='combined'
-    )
-    print("Summary:", summary2)
+    # Example 2: Kraken scalping strategy
+    print("2. Kraken-optimized scalping strategy:")
+    try:
+        labeled_data2, summary2 = label_kraken_scalping_strategy(enhanced_data)
+        print("Summary:", summary2)
+    except Exception as e:
+        print(f"Error: {e}")
     print()
 
-    # Example 3: Simultaneous events only
-    print("3. Simultaneous events labeling:")
-    labeled_data3, summary3 = label_multiple_events(
-        enhanced_data,
-        ['outlier_event', 'momentum_regime_event'],
-        mode='simultaneous'
-    )
-    print("Summary:", summary3)
+    # Example 3: Kraken swing strategy
+    print("3. Kraken-optimized swing strategy:")
+    try:
+        labeled_data3, summary3 = label_kraken_swing_strategy(enhanced_data)
+        print("Summary:", summary3)
+    except Exception as e:
+        print(f"Error: {e}")
     print()
 
-    # Example 4: Custom combinations with different parameters
-    print("4. Custom strategies:")
-    labeled_data4, summary4 = label_custom_strategies(enhanced_data)
-    print("Summary:", summary4)
+    # Example 4: Multi-timeframe with different theory parameters
+    print("4. Multi-timeframe theory-based strategy:")
+    try:
+        labeled_data4, summary4 = label_kraken_multi_timeframe(enhanced_data)
+        print("Summary:", summary4)
+    except Exception as e:
+        print(f"Error: {e}")
     print()
 
-    # Example 5: All events individually
-    print("5. All events individually:")
-    labeled_data5, summary5 = label_all_events_individually(enhanced_data)
-    print(labeled_data5)
-    print("Summary:", summary5)
+    # Example 5: High confidence simultaneous events
+    print("5. High-confidence simultaneous events:")
+    try:
+        labeled_data5, summary5 = label_high_confidence_kraken(enhanced_data)
+        print("Summary:", summary5)
+    except Exception as e:
+        print(f"Error: {e}")
+    print()
 
-"""1. Multiple Labeling Modes:
+    # Example 6: Custom commission structure (e.g., different exchange)
+    print("6. Custom commission structure example:")
+    try:
+        custom_commission = {
+            'taker_fee': 0.001,  # 0.1% (better exchange)
+            'spread_estimate': 0.0003,
+            'slippage_estimate': 0.0002,
+            'funding_cost_daily': 0.00003,
+            'min_profit_multiplier': 2.0  # Lower multiplier with better fees
+        }
 
-individual: Each event type gets its own separate label column
-combined: Multiple events merged into one label using OR logic
-simultaneous: Only label when multiple events occur at the same timestamp
+        labeled_data6, summary6 = label_multiple_events_theory_based(
+            enhanced_data,
+            'outlier_event',
+            commission_structure=custom_commission
+        )
+        print("Custom commission summary:", summary6.get('commission_analysis', {}))
+    except Exception as e:
+        print(f"Error: {e}")
+    print()
 
-2. Flexible Event Selection:
+    # Example 7: Compare costs
+    print("7. Commission cost comparison:")
+    try:
+        kraken_standard = {
+            'taker_fee': 0.0026,
+            'spread_estimate': 0.0005,
+            'slippage_estimate': 0.0003,
+            'funding_cost_daily': 0.00005,
+            'min_profit_multiplier': 2.5
+        }
 
-Single event: 'outlier_event'
-Multiple events: ['outlier_event', 'momentum_regime_event']
-Custom combinations: {'scalping_events': ['outlier_event'], 'swing_events': ['momentum_regime_event']}
+        better_exchange = {
+            'taker_fee': 0.001,
+            'spread_estimate': 0.0003,
+            'slippage_estimate': 0.0002,
+            'funding_cost_daily': 0.00003,
+            'min_profit_multiplier': 2.0
+        }
 
-3. Per-Event Custom Parameters:
-You can specify different barrier parameters for each event type:
-pythonbarrier_params = {
-    'outlier_event_label': {'profit_take': 0.015, 'holding_days': 0.5},
-    'momentum_regime_event_label': {'profit_take': 0.03, 'holding_days': 2.0}
-}
-4. Enhanced Output:
-Instead of one triple_barrier_label column, you now get separate columns for each event type:
+        kraken_cost = (kraken_standard['taker_fee'] * 2 +
+                       kraken_standard['spread_estimate'] +
+                       kraken_standard['slippage_estimate'])
 
-outlier_event_label
-momentum_regime_event_label
-outlier_barrier_touched
-momentum_barrier_touched
-etc.
+        better_cost = (better_exchange['taker_fee'] * 2 +
+                       better_exchange['spread_estimate'] +
+                       better_exchange['slippage_estimate'])
 
-Usage Examples
-Individual Labeling (most common):
-pythonlabeled_data, summary = label_multiple_events(
-    data, 
-    ['outlier_event', 'momentum_regime_event'], 
-    mode='individual'
+        kraken_min_profit = kraken_cost * kraken_standard['min_profit_multiplier']
+        better_min_profit = better_cost * better_exchange['min_profit_multiplier']
+
+        print(f"Kraken total round-trip cost: {kraken_cost:.4f} ({kraken_cost * 100:.2f}%)")
+        print(f"Better exchange cost: {better_cost:.4f} ({better_cost * 100:.2f}%)")
+        print(f"Kraken minimum profit needed: {kraken_min_profit:.4f} ({kraken_min_profit * 100:.2f}%)")
+        print(f"Better exchange min profit: {better_min_profit:.4f} ({better_min_profit * 100:.2f}%)")
+        print(f"Cost savings: {(kraken_min_profit - better_min_profit) * 100:.2f}% per trade")
+    except Exception as e:
+        print(f"Error: {e}")
+    print()
+
+    # Example 8: Show barrier calculations
+    print("8. Theory-based barrier calculation example:")
+    try:
+        # Find first outlier event
+        outlier_events = enhanced_data[enhanced_data['outlier_event'] == True].index
+        if len(outlier_events) > 0:
+            sample_event = outlier_events[0]
+
+            # Manual calculation
+            atr_value = enhanced_data.loc[sample_event, 'ATR_pct'] / 100 if 'ATR_pct' in enhanced_data.columns else 0.02
+            current_price = enhanced_data.loc[sample_event, 'Close']
+
+            # Theory-based calculation
+            vol_multiplier = 2.0
+            theory_profit = atr_value * vol_multiplier
+            theory_stop = atr_value * 1.2
+
+            # Commission-adjusted
+            kraken_cost = (0.0026 * 2 + 0.0005 + 0.0003)
+            kraken_min_profit = kraken_cost * 2.5
+            final_profit = max(kraken_min_profit, theory_profit)
+            final_stop = max(kraken_min_profit * 0.6, theory_stop)
+
+            print(f"Sample event at: {sample_event}")
+            print(f"Current price: ${current_price:.2f}")
+            print(f"ATR value: {atr_value:.4f} ({atr_value * 100:.2f}%)")
+            print(f"Theory-based profit target: {theory_profit:.4f} ({theory_profit * 100:.2f}%)")
+            print(f"Theory-based stop loss: {theory_stop:.4f} ({theory_stop * 100:.2f}%)")
+            print(f"Minimum profit needed (Kraken): {kraken_min_profit:.4f} ({kraken_min_profit * 100:.2f}%)")
+            print(f"Final profit target: {final_profit:.4f} ({final_profit * 100:.2f}%)")
+            print(f"Final stop loss: {final_stop:.4f} ({final_stop * 100:.2f}%)")
+            print(f"Reward/Risk ratio: {final_profit / final_stop:.2f}:1")
+        else:
+            print("No outlier events found in dataset")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    print("\n=== SCRIPT EXECUTION COMPLETE ===")
+    print("Use the preset functions or customize with label_multiple_events_theory_based()")
+
+data = indicated
+labeled_data, summary = label_multiple_events_theory_based(
+    data,
+    ['outlier_event', 'momentum_regime_event']
 )
-Simultaneous Events Only (high confidence):
-pythonlabeled_data, summary = label_multiple_events(
-    data, 
-    ['outlier_event', 'momentum_regime_event'], 
-    mode='simultaneous'  # Only when both occur together
-)
-Custom Strategies with Different Parameters:
-pythoncustom_combinations = {
-    'scalping_events': ['outlier_event'],
-    'swing_events': ['momentum_regime_event']
+
+# Custom parameters
+barrier_params = {
+    'outlier_event_label': {
+        'volatility_multiplier': 1.5,
+        'min_reward_risk_ratio': 2.0
+    }
 }
 
-custom_params = {
-    'scalping_events': {'profit_take': 0.01, 'holding_days': 0.25},
-    'swing_events': {'profit_take': 0.03, 'holding_days': 2.0}
-}
-
-labeled_data, summary = label_multiple_events(
-    data, 
-    custom_combinations,
-    barrier_params=custom_params
-)"""
+# 1. Theory-Based Barriers:
+#
+# ATR/volatility-based adaptive barriers
+# Commission-aware minimum profit requirements
+# Liquidity and volatility regime adjustments
+# No overfitting - purely theory-driven
+#
+# 2. Multi-Event Support:
+#
+# Individual labeling per event type
+# Combined events (OR logic)
+# Simultaneous events (AND logic)
+# Custom event combinations
+#
+# 3. Kraken Commission Integration:
+#
+# Taker fees only (0.26% standard trading)
+# Spread and slippage estimates
+# Minimum profit multipliers
+# Real-world cost analysis
+#
+# 4. Preset Strategies:
+#
+# label_kraken_scalping_strategy() - Tight barriers, short holding
+# label_kraken_swing_strategy() - Wider barriers, longer holding
+# label_kraken_multi_timeframe() - Different params per event
+# label_high_confidence_kraken() - Simultaneous events only
+#
+# 5. Usage Examples:
+# python# Simple usage
+# labeled_data, summary = label_multiple_events_theory_based(
+#     data,
+#     ['outlier_event', 'momentum_regime_event']
+# )
+#
+# # Custom parameters
+# barrier_params = {
+#     'outlier_event_label': {
+#         'volatility_multiplier': 1.5,
+#         'min_reward_risk_ratio': 2.0
+#     }
+# }
