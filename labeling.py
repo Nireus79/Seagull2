@@ -869,178 +869,175 @@ def quick_label_all_events(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
 
 
 # EXAMPLE USAGE AND TESTING
-if __name__ == "__main__":
-    enhanced_data = indicated
+# if __name__ == "__main__":
+#     enhanced_data = indicated
+#
+#     print("=== THEORY-BASED MULTI-EVENT LABELING WITH KRAKEN COMMISSIONS ===\n")
+#
+#     # Example 1: Theory-based individual events with Kraken commissions
+#     print("1. Theory-based individual event labeling (Kraken optimized):")
+#     try:
+#         labeled_data1, summary1 = label_multiple_events_theory_based(
+#             enhanced_data,
+#             ['outlier_event', 'momentum_regime_event'],
+#             mode='individual'
+#         )
+#         print("Commission analysis:", summary1.get('commission_analysis', {}))
+#         print("Summary:", {k: v for k, v in summary1.items() if k != 'commission_analysis'})
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 2: Kraken scalping strategy
+#     print("2. Kraken-optimized scalping strategy:")
+#     try:
+#         labeled_data2, summary2 = label_kraken_scalping_strategy(enhanced_data)
+#         print("Summary:", summary2)
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 3: Kraken swing strategy
+#     print("3. Kraken-optimized swing strategy:")
+#     try:
+#         labeled_data3, summary3 = label_kraken_swing_strategy(enhanced_data)
+#         print("Summary:", summary3)
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 4: Multi-timeframe with different theory parameters
+#     print("4. Multi-timeframe theory-based strategy:")
+#     try:
+#         labeled_data4, summary4 = label_kraken_multi_timeframe(enhanced_data)
+#         print("Summary:", summary4)
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 5: High confidence simultaneous events
+#     print("5. High-confidence simultaneous events:")
+#     try:
+#         labeled_data5, summary5 = label_high_confidence_kraken(enhanced_data)
+#         print("Summary:", summary5)
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 6: Custom commission structure (e.g., different exchange)
+#     print("6. Custom commission structure example:")
+#     try:
+#         custom_commission = {
+#             'taker_fee': 0.001,  # 0.1% (better exchange)
+#             'spread_estimate': 0.0003,
+#             'slippage_estimate': 0.0002,
+#             'funding_cost_daily': 0.00003,
+#             'min_profit_multiplier': 2.0  # Lower multiplier with better fees
+#         }
+#
+#         labeled_data6, summary6 = label_multiple_events_theory_based(
+#             enhanced_data,
+#             'outlier_event',
+#             commission_structure=custom_commission
+#         )
+#         print("Custom commission summary:", summary6.get('commission_analysis', {}))
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 7: Compare costs
+#     print("7. Commission cost comparison:")
+#     try:
+#         kraken_standard = {
+#             'taker_fee': 0.0026,
+#             'spread_estimate': 0.0005,
+#             'slippage_estimate': 0.0003,
+#             'funding_cost_daily': 0.00005,
+#             'min_profit_multiplier': 2.5
+#         }
+#
+#         better_exchange = {
+#             'taker_fee': 0.001,
+#             'spread_estimate': 0.0003,
+#             'slippage_estimate': 0.0002,
+#             'funding_cost_daily': 0.00003,
+#             'min_profit_multiplier': 2.0
+#         }
+#
+#         kraken_cost = (kraken_standard['taker_fee'] * 2 +
+#                        kraken_standard['spread_estimate'] +
+#                        kraken_standard['slippage_estimate'])
+#
+#         better_cost = (better_exchange['taker_fee'] * 2 +
+#                        better_exchange['spread_estimate'] +
+#                        better_exchange['slippage_estimate'])
+#
+#         kraken_min_profit = kraken_cost * kraken_standard['min_profit_multiplier']
+#         better_min_profit = better_cost * better_exchange['min_profit_multiplier']
+#
+#         print(f"Kraken total round-trip cost: {kraken_cost:.4f} ({kraken_cost * 100:.2f}%)")
+#         print(f"Better exchange cost: {better_cost:.4f} ({better_cost * 100:.2f}%)")
+#         print(f"Kraken minimum profit needed: {kraken_min_profit:.4f} ({kraken_min_profit * 100:.2f}%)")
+#         print(f"Better exchange min profit: {better_min_profit:.4f} ({better_min_profit * 100:.2f}%)")
+#         print(f"Cost savings: {(kraken_min_profit - better_min_profit) * 100:.2f}% per trade")
+#     except Exception as e:
+#         print(f"Error: {e}")
+#     print()
+#
+#     # Example 8: Show barrier calculations
+#     print("8. Theory-based barrier calculation example:")
+#     try:
+#         # Find first outlier event
+#         outlier_events = enhanced_data[enhanced_data['outlier_event'] == True].index
+#         if len(outlier_events) > 0:
+#             sample_event = outlier_events[0]
+#
+#             # Manual calculation
+#             atr_value = enhanced_data.loc[sample_event, 'ATR_pct'] / 100 if 'ATR_pct' in enhanced_data.columns else 0.02
+#             current_price = enhanced_data.loc[sample_event, 'Close']
+#
+#             # Theory-based calculation
+#             vol_multiplier = 2.0
+#             theory_profit = atr_value * vol_multiplier
+#             theory_stop = atr_value * 1.2
+#
+#             # Commission-adjusted
+#             kraken_cost = (0.0026 * 2 + 0.0005 + 0.0003)
+#             kraken_min_profit = kraken_cost * 2.5
+#             final_profit = max(kraken_min_profit, theory_profit)
+#             final_stop = max(kraken_min_profit * 0.6, theory_stop)
+#
+#             print(f"Sample event at: {sample_event}")
+#             print(f"Current price: ${current_price:.2f}")
+#             print(f"ATR value: {atr_value:.4f} ({atr_value * 100:.2f}%)")
+#             print(f"Theory-based profit target: {theory_profit:.4f} ({theory_profit * 100:.2f}%)")
+#             print(f"Theory-based stop loss: {theory_stop:.4f} ({theory_stop * 100:.2f}%)")
+#             print(f"Minimum profit needed (Kraken): {kraken_min_profit:.4f} ({kraken_min_profit * 100:.2f}%)")
+#             print(f"Final profit target: {final_profit:.4f} ({final_profit * 100:.2f}%)")
+#             print(f"Final stop loss: {final_stop:.4f} ({final_stop * 100:.2f}%)")
+#             print(f"Reward/Risk ratio: {final_profit / final_stop:.2f}:1")
+#         else:
+#             print("No outlier events found in dataset")
+#     except Exception as e:
+#         print(f"Error: {e}")
+#
+#     print("\n=== SCRIPT EXECUTION COMPLETE ===")
+#     print("Use the preset functions or customize with label_multiple_events_theory_based()")
 
-    print("=== THEORY-BASED MULTI-EVENT LABELING WITH KRAKEN COMMISSIONS ===\n")
+# Detect all event types dynamically
+labeler = MultiEventTripleBarrierLabeling(indicated)
+all_events = labeler.available_events
+# print(all_events)
 
-    # Example 1: Theory-based individual events with Kraken commissions
-    print("1. Theory-based individual event labeling (Kraken optimized):")
-    try:
-        labeled_data1, summary1 = label_multiple_events_theory_based(
-            enhanced_data,
-            ['outlier_event', 'momentum_regime_event'],
-            mode='individual'
-        )
-        print("Commission analysis:", summary1.get('commission_analysis', {}))
-        print("Summary:", {k: v for k, v in summary1.items() if k != 'commission_analysis'})
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 2: Kraken scalping strategy
-    print("2. Kraken-optimized scalping strategy:")
-    try:
-        labeled_data2, summary2 = label_kraken_scalping_strategy(enhanced_data)
-        print("Summary:", summary2)
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 3: Kraken swing strategy
-    print("3. Kraken-optimized swing strategy:")
-    try:
-        labeled_data3, summary3 = label_kraken_swing_strategy(enhanced_data)
-        print("Summary:", summary3)
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 4: Multi-timeframe with different theory parameters
-    print("4. Multi-timeframe theory-based strategy:")
-    try:
-        labeled_data4, summary4 = label_kraken_multi_timeframe(enhanced_data)
-        print("Summary:", summary4)
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 5: High confidence simultaneous events
-    print("5. High-confidence simultaneous events:")
-    try:
-        labeled_data5, summary5 = label_high_confidence_kraken(enhanced_data)
-        print("Summary:", summary5)
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 6: Custom commission structure (e.g., different exchange)
-    print("6. Custom commission structure example:")
-    try:
-        custom_commission = {
-            'taker_fee': 0.001,  # 0.1% (better exchange)
-            'spread_estimate': 0.0003,
-            'slippage_estimate': 0.0002,
-            'funding_cost_daily': 0.00003,
-            'min_profit_multiplier': 2.0  # Lower multiplier with better fees
-        }
-
-        labeled_data6, summary6 = label_multiple_events_theory_based(
-            enhanced_data,
-            'outlier_event',
-            commission_structure=custom_commission
-        )
-        print("Custom commission summary:", summary6.get('commission_analysis', {}))
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 7: Compare costs
-    print("7. Commission cost comparison:")
-    try:
-        kraken_standard = {
-            'taker_fee': 0.0026,
-            'spread_estimate': 0.0005,
-            'slippage_estimate': 0.0003,
-            'funding_cost_daily': 0.00005,
-            'min_profit_multiplier': 2.5
-        }
-
-        better_exchange = {
-            'taker_fee': 0.001,
-            'spread_estimate': 0.0003,
-            'slippage_estimate': 0.0002,
-            'funding_cost_daily': 0.00003,
-            'min_profit_multiplier': 2.0
-        }
-
-        kraken_cost = (kraken_standard['taker_fee'] * 2 +
-                       kraken_standard['spread_estimate'] +
-                       kraken_standard['slippage_estimate'])
-
-        better_cost = (better_exchange['taker_fee'] * 2 +
-                       better_exchange['spread_estimate'] +
-                       better_exchange['slippage_estimate'])
-
-        kraken_min_profit = kraken_cost * kraken_standard['min_profit_multiplier']
-        better_min_profit = better_cost * better_exchange['min_profit_multiplier']
-
-        print(f"Kraken total round-trip cost: {kraken_cost:.4f} ({kraken_cost * 100:.2f}%)")
-        print(f"Better exchange cost: {better_cost:.4f} ({better_cost * 100:.2f}%)")
-        print(f"Kraken minimum profit needed: {kraken_min_profit:.4f} ({kraken_min_profit * 100:.2f}%)")
-        print(f"Better exchange min profit: {better_min_profit:.4f} ({better_min_profit * 100:.2f}%)")
-        print(f"Cost savings: {(kraken_min_profit - better_min_profit) * 100:.2f}% per trade")
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-
-    # Example 8: Show barrier calculations
-    print("8. Theory-based barrier calculation example:")
-    try:
-        # Find first outlier event
-        outlier_events = enhanced_data[enhanced_data['outlier_event'] == True].index
-        if len(outlier_events) > 0:
-            sample_event = outlier_events[0]
-
-            # Manual calculation
-            atr_value = enhanced_data.loc[sample_event, 'ATR_pct'] / 100 if 'ATR_pct' in enhanced_data.columns else 0.02
-            current_price = enhanced_data.loc[sample_event, 'Close']
-
-            # Theory-based calculation
-            vol_multiplier = 2.0
-            theory_profit = atr_value * vol_multiplier
-            theory_stop = atr_value * 1.2
-
-            # Commission-adjusted
-            kraken_cost = (0.0026 * 2 + 0.0005 + 0.0003)
-            kraken_min_profit = kraken_cost * 2.5
-            final_profit = max(kraken_min_profit, theory_profit)
-            final_stop = max(kraken_min_profit * 0.6, theory_stop)
-
-            print(f"Sample event at: {sample_event}")
-            print(f"Current price: ${current_price:.2f}")
-            print(f"ATR value: {atr_value:.4f} ({atr_value * 100:.2f}%)")
-            print(f"Theory-based profit target: {theory_profit:.4f} ({theory_profit * 100:.2f}%)")
-            print(f"Theory-based stop loss: {theory_stop:.4f} ({theory_stop * 100:.2f}%)")
-            print(f"Minimum profit needed (Kraken): {kraken_min_profit:.4f} ({kraken_min_profit * 100:.2f}%)")
-            print(f"Final profit target: {final_profit:.4f} ({final_profit * 100:.2f}%)")
-            print(f"Final stop loss: {final_stop:.4f} ({final_stop * 100:.2f}%)")
-            print(f"Reward/Risk ratio: {final_profit / final_stop:.2f}:1")
-        else:
-            print("No outlier events found in dataset")
-    except Exception as e:
-        print(f"Error: {e}")
-
-    print("\n=== SCRIPT EXECUTION COMPLETE ===")
-    print("Use the preset functions or customize with label_multiple_events_theory_based()")
-
-    print("GPT+++++++++++++++")
-    # Detect all event types dynamically
-    labeler = MultiEventTripleBarrierLabeling(indicated)
-    all_events = labeler.available_events
-    print(all_events)
-
-    # Run labeling: theory-based is ON by default
-    labeled_data, summary = label_multiple_events_theory_based(
-        indicated,
-        event_selection=all_events,  # e.g. ["outlier_event", "momentum_regime_event", ...]
-        mode="individual",           # one label column per event type -> "<event>_label"
-        use_parallel=True            # optional
-    )
-    # print(labeled_data)
-    print(summary)
-
-
+# Run labeling: theory-based is ON by default
+labeled_data, summary = label_multiple_events_theory_based(
+    indicated,
+    event_selection=all_events,  # e.g. ["outlier_event", "momentum_regime_event", ...]
+    mode="individual",  # one label column per event type -> "<event>_label"
+    use_parallel=True  # optional
+)
+# print(labeled_data)
+print(summary)
 
 # 1. Theory-Based Barriers:
 #
