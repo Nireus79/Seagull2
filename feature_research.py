@@ -59,15 +59,9 @@ except ImportError:
 # Genetic Algorithm for feature selection
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array
+import multiprocessing
 
 warnings.filterwarnings('ignore')
-
-# Import labeled_data from labeling module (ensure labeling.py is in the same directory)
-try:
-    from labeling import labeled_data
-except ImportError:
-    labeled_data = None
-    print("Note: Import labeled_data from labeling.py after running labeling script")
 
 
 @dataclass
@@ -87,13 +81,12 @@ class ResearchResults:
 class GeneticFeatureSelector(BaseEstimator, TransformerMixin):
     """
     Genetic Algorithm for feature selection optimized for binary classification
-    Single-threaded version for Windows/PyCharm compatibility
     """
 
     def __init__(self,
                  estimator,
-                 population_size=30,
-                 generations=15,
+                 population_size=50,
+                 generations=20,
                  mutation_rate=0.1,
                  crossover_rate=0.8,
                  tournament_size=3,
@@ -105,10 +98,10 @@ class GeneticFeatureSelector(BaseEstimator, TransformerMixin):
         self.crossover_rate = crossover_rate
         self.tournament_size = tournament_size
         self.random_state = random_state
-        np.random.seed(random_state)
 
     def _create_individual(self, n_features):
         """Create random feature selection mask"""
+        np.random.seed(self.random_state)
         # Ensure at least 5 features are selected
         individual = np.random.random(n_features) > 0.7
         if individual.sum() < 5:
@@ -123,16 +116,17 @@ class GeneticFeatureSelector(BaseEstimator, TransformerMixin):
 
         X_subset = X[:, individual]
         try:
-            # Use TimeSeriesSplit for temporal data - reduced splits for speed
+            # Use TimeSeriesSplit for temporal data
             cv_scores = cross_val_score(
                 self.estimator, X_subset, y,
                 cv=TimeSeriesSplit(n_splits=3),
-                scoring='roc_auc'
+                scoring='roc_auc',
+                n_jobs=1
             )
             # Penalize for too many features
             penalty = individual.sum() / len(individual) * 0.1
             return cv_scores.mean() - penalty
-        except Exception as e:
+        except:
             return 0.0
 
     def _tournament_selection(self, population, fitness_scores):
@@ -179,8 +173,6 @@ class GeneticFeatureSelector(BaseEstimator, TransformerMixin):
         X, y = check_X_y(X, y)
         n_features = X.shape[1]
 
-        print(f"Starting genetic algorithm with {self.population_size} population, {self.generations} generations")
-
         # Initialize population
         population = [self._create_individual(n_features) for _ in range(self.population_size)]
 
@@ -188,23 +180,17 @@ class GeneticFeatureSelector(BaseEstimator, TransformerMixin):
         best_individual = None
 
         for generation in range(self.generations):
-            print(f"  Generation {generation + 1}/{self.generations}", end="")
-
             # Evaluate population
-            fitness_scores = []
-            for i, individual in enumerate(population):
-                fitness = self._evaluate_individual(individual, X, y)
-                fitness_scores.append(fitness)
-                if i % 10 == 0:
-                    print(".", end="")
+            fitness_scores = [
+                self._evaluate_individual(individual, X, y)
+                for individual in population
+            ]
 
             # Track best individual
             current_best_idx = np.argmax(fitness_scores)
             if fitness_scores[current_best_idx] > best_fitness:
                 best_fitness = fitness_scores[current_best_idx]
                 best_individual = population[current_best_idx].copy()
-
-            print(f" Best fitness: {best_fitness:.4f}")
 
             # Selection
             selected = self._tournament_selection(population, fitness_scores)
@@ -248,11 +234,10 @@ class BinaryClassificationFeatureResearch:
     """
     Advanced feature research system for binary classification models
     Optimized for financial time series with event-driven labels
-    Windows/PyCharm compatible (single-threaded)
     """
-    from labeling import labeled_data
+
     def __init__(self,
-                 # labeled_data: pd.DataFrame,
+                 labeled_data: pd.DataFrame,
                  results_dir: str = "feature_research_results",
                  random_state: int = 42):
         """
@@ -267,7 +252,6 @@ class BinaryClassificationFeatureResearch:
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(exist_ok=True)
         self.random_state = random_state
-        np.random.seed(random_state)
 
         # Set up logging
         logging.basicConfig(
@@ -317,7 +301,7 @@ class BinaryClassificationFeatureResearch:
         self.logger.info(f"Detected {len(self.label_columns)} label types: {self.label_columns}")
 
     def _initialize_model_zoo(self):
-        """Initialize comprehensive model zoo for binary classification (single-threaded)"""
+        """Initialize comprehensive model zoo for binary classification"""
         self.model_zoo = {
             # Tree-based models (good for financial data)
             'random_forest': RandomForestClassifier(
@@ -339,14 +323,14 @@ class BinaryClassificationFeatureResearch:
             ),
 
             # Instance-based
-            'knn': KNeighborsClassifier(n_neighbors=5, n_jobs=1),
+            'knn': KNeighborsClassifier(n_neighbors=5),
 
             # Naive Bayes (handles multicollinearity well)
             'naive_bayes': GaussianNB(),
 
-            # SVM (good for high-dimensional data) - reduced for speed
+            # SVM (good for high-dimensional data)
             'svm': SVC(
-                probability=True, random_state=self.random_state, kernel='rbf', C=1.0
+                probability=True, random_state=self.random_state
             ),
 
             # Discriminant analysis
@@ -360,10 +344,10 @@ class BinaryClassificationFeatureResearch:
 
             # Ensemble methods
             'ada_boost': AdaBoostClassifier(
-                random_state=self.random_state, n_estimators=50  # Reduced for speed
+                random_state=self.random_state
             ),
             'bagging': BaggingClassifier(
-                random_state=self.random_state, n_jobs=1, n_estimators=50  # Reduced for speed
+                random_state=self.random_state, n_jobs=1
             ),
         }
 
@@ -371,17 +355,13 @@ class BinaryClassificationFeatureResearch:
         if HAS_XGBOOST:
             self.model_zoo['xgboost'] = xgb.XGBClassifier(
                 random_state=self.random_state,
-                eval_metric='logloss',
-                n_estimators=100,
-                n_jobs=1
+                eval_metric='logloss'
             )
 
         if HAS_LIGHTGBM:
             self.model_zoo['lightgbm'] = lgb.LGBMClassifier(
                 random_state=self.random_state,
-                verbosity=-1,
-                n_estimators=100,
-                n_jobs=1
+                verbosity=-1
             )
 
         self.logger.info(f"Initialized {len(self.model_zoo)} models for evaluation")
@@ -450,12 +430,9 @@ class BinaryClassificationFeatureResearch:
 
         importance_results = {}
 
-        print(f"Computing feature importance for {label_type}...")
-
         # Mutual Information
         if 'mutual_info' in methods:
             try:
-                print("  Computing mutual information...")
                 mi_scores = mutual_info_classif(X, y, random_state=self.random_state)
                 importance_results['mutual_info'] = dict(zip(X.columns, mi_scores))
             except Exception as e:
@@ -464,7 +441,6 @@ class BinaryClassificationFeatureResearch:
         # Random Forest importance
         if 'random_forest' in methods:
             try:
-                print("  Computing Random Forest importance...")
                 rf = RandomForestClassifier(n_estimators=100, random_state=self.random_state, n_jobs=1)
                 rf.fit(X, y)
                 importance_results['random_forest'] = dict(zip(X.columns, rf.feature_importances_))
@@ -474,7 +450,6 @@ class BinaryClassificationFeatureResearch:
         # Gradient Boosting importance
         if 'gradient_boosting' in methods:
             try:
-                print("  Computing Gradient Boosting importance...")
                 gb = GradientBoostingClassifier(n_estimators=100, random_state=self.random_state)
                 gb.fit(X, y)
                 importance_results['gradient_boosting'] = dict(zip(X.columns, gb.feature_importances_))
@@ -484,7 +459,6 @@ class BinaryClassificationFeatureResearch:
         # Statistical tests
         if 'statistical' in methods:
             try:
-                print("  Computing statistical importance...")
                 f_scores, _ = f_classif(X, y)
                 importance_results['statistical'] = dict(zip(X.columns, f_scores))
             except Exception as e:
@@ -495,16 +469,16 @@ class BinaryClassificationFeatureResearch:
     def genetic_feature_selection(self,
                                   label_type: str,
                                   base_estimator=None,
-                                  population_size: int = 20,
-                                  generations: int = 10) -> Tuple[List[str], float]:
+                                  population_size: int = 30,
+                                  generations: int = 15) -> Tuple[List[str], float]:
         """
         Apply genetic algorithm for feature selection
 
         Args:
             label_type: Label to optimize for
             base_estimator: Model to use for evaluation
-            population_size: GA population size (reduced for Windows)
-            generations: Number of GA generations (reduced for Windows)
+            population_size: GA population size
+            generations: Number of GA generations
 
         Returns:
             Tuple of (selected_features, best_score)
@@ -565,23 +539,21 @@ class BinaryClassificationFeatureResearch:
         results = {}
 
         # Time series cross-validation
-        tscv = TimeSeriesSplit(n_splits=3)  # Reduced for speed
+        tscv = TimeSeriesSplit(n_splits=5)
 
-        print(f"Evaluating {len(models)} models for {label_type}...")
-
-        for i, model_name in enumerate(models):
+        for model_name in models:
             if model_name not in self.model_zoo:
                 continue
 
             try:
                 model = self.model_zoo[model_name]
-                print(f"  [{i + 1}/{len(models)}] Evaluating {model_name}...")
+                self.logger.info(f"Evaluating {model_name} for {label_type}")
 
                 # Cross-validation scores
                 cv_scores = {}
 
                 # AUC-ROC
-                auc_scores = cross_val_score(model, X, y, cv=tscv, scoring='roc_auc')
+                auc_scores = cross_val_score(model, X, y, cv=tscv, scoring='roc_auc', n_jobs=1)
                 cv_scores['auc_roc'] = {
                     'mean': auc_scores.mean(),
                     'std': auc_scores.std(),
@@ -589,7 +561,7 @@ class BinaryClassificationFeatureResearch:
                 }
 
                 # Accuracy
-                acc_scores = cross_val_score(model, X, y, cv=tscv, scoring='accuracy')
+                acc_scores = cross_val_score(model, X, y, cv=tscv, scoring='accuracy', n_jobs=1)
                 cv_scores['accuracy'] = {
                     'mean': acc_scores.mean(),
                     'std': acc_scores.std(),
@@ -597,7 +569,7 @@ class BinaryClassificationFeatureResearch:
                 }
 
                 # Precision
-                prec_scores = cross_val_score(model, X, y, cv=tscv, scoring='precision')
+                prec_scores = cross_val_score(model, X, y, cv=tscv, scoring='precision', n_jobs=1)
                 cv_scores['precision'] = {
                     'mean': prec_scores.mean(),
                     'std': prec_scores.std(),
@@ -605,7 +577,7 @@ class BinaryClassificationFeatureResearch:
                 }
 
                 # Recall
-                rec_scores = cross_val_score(model, X, y, cv=tscv, scoring='recall')
+                rec_scores = cross_val_score(model, X, y, cv=tscv, scoring='recall', n_jobs=1)
                 cv_scores['recall'] = {
                     'mean': rec_scores.mean(),
                     'std': rec_scores.std(),
@@ -613,7 +585,7 @@ class BinaryClassificationFeatureResearch:
                 }
 
                 # F1-score
-                f1_scores = cross_val_score(model, X, y, cv=tscv, scoring='f1')
+                f1_scores = cross_val_score(model, X, y, cv=tscv, scoring='f1', n_jobs=1)
                 cv_scores['f1'] = {
                     'mean': f1_scores.mean(),
                     'std': f1_scores.std(),
@@ -631,14 +603,14 @@ class BinaryClassificationFeatureResearch:
     def test_feature_stability(self,
                                label_type: str,
                                features: List[str],
-                               test_periods: int = 4) -> Dict[str, float]:
+                               test_periods: int = 6) -> Dict[str, float]:
         """
         Test temporal stability of features using rolling window analysis
 
         Args:
             label_type: Label to analyze
             features: Features to test
-            test_periods: Number of time periods to test (reduced for Windows)
+            test_periods: Number of time periods to test
 
         Returns:
             Dictionary mapping features to stability scores
@@ -651,8 +623,6 @@ class BinaryClassificationFeatureResearch:
         period_size = n_samples // test_periods
 
         stability_scores = {}
-
-        print(f"Testing feature stability across {test_periods} time periods...")
 
         for feature in features:
             period_importances = []
@@ -680,7 +650,7 @@ class BinaryClassificationFeatureResearch:
                 except:
                     continue
 
-            if len(period_importances) >= 2:
+            if len(period_importances) >= 3:
                 # Stability = 1 - coefficient_of_variation
                 stability_scores[feature] = 1 - (
                         np.std(period_importances) / (np.mean(period_importances) + 1e-8)
@@ -727,8 +697,6 @@ class BinaryClassificationFeatureResearch:
         tscv = TimeSeriesSplit(n_splits=3)
         all_predictions = np.zeros(len(y))
         all_proba = np.zeros(len(y))
-
-        print(f"Computing economic metrics using {model_name}...")
 
         for train_idx, test_idx in tscv.split(X):
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
@@ -794,7 +762,7 @@ class BinaryClassificationFeatureResearch:
     def comprehensive_research(self,
                                label_type: str,
                                use_genetic_selection: bool = True,
-                               max_features: int = 15) -> ResearchResults:
+                               max_features: int = 20) -> ResearchResults:
         """
         Run comprehensive feature research for a label type
 
@@ -806,16 +774,12 @@ class BinaryClassificationFeatureResearch:
         Returns:
             ResearchResults object with all findings
         """
-        print(f"\n{'=' * 60}")
-        print(f"COMPREHENSIVE RESEARCH FOR: {label_type}")
-        print(f"{'=' * 60}")
+        self.logger.info(f"Starting comprehensive research for {label_type}")
 
         # Step 1: Feature importance analysis
-        print("\nStep 1: Analyzing feature importance...")
         importance_results = self.research_feature_importance(label_type)
 
         # Step 2: Combine importance scores
-        print("\nStep 2: Combining importance scores...")
         combined_scores = defaultdict(float)
         for method, scores in importance_results.items():
             for feature, score in scores.items():
@@ -836,32 +800,29 @@ class BinaryClassificationFeatureResearch:
 
         # Step 4: Genetic algorithm feature selection (optional)
         if use_genetic_selection and len(top_features) > 10:
-            print(f"\nStep 4: Genetic algorithm optimization...")
+            self.logger.info("Applying genetic algorithm for feature optimization")
             selected_features, ga_score = self.genetic_feature_selection(
                 label_type,
-                population_size=20,  # Reduced for Windows
-                generations=10  # Reduced for Windows
+                population_size=30,
+                generations=15
             )
             # Combine GA results with importance-based selection
             final_features = list(set(selected_features + top_features[:max_features]))[:max_features]
         else:
             final_features = top_features[:max_features]
 
-        print(f"Selected {len(final_features)} features: {final_features}")
-
         # Step 5: Test feature stability
-        print(f"\nStep 5: Testing feature stability...")
+        self.logger.info("Testing feature stability across time periods")
         stability_scores = self.test_feature_stability(label_type, final_features)
 
         # Step 6: Comprehensive model evaluation
-        print(f"\nStep 6: Evaluating all models...")
+        self.logger.info("Evaluating all models with selected features")
         model_performance = self.evaluate_model_performance(
             label_type,
             features=final_features
         )
 
         # Step 7: Rank models by performance
-        print(f"\nStep 7: Ranking models...")
         model_rankings = {}
         for model_name, metrics in model_performance.items():
             # Combined score: AUC-ROC (0.4) + F1 (0.3) + Precision (0.3)
@@ -876,7 +837,7 @@ class BinaryClassificationFeatureResearch:
         best_model = max(model_rankings.items(), key=lambda x: x[1])[0]
 
         # Step 8: Calculate economic metrics with best model
-        print(f"\nStep 8: Calculating economic metrics using {best_model}...")
+        self.logger.info(f"Calculating economic metrics using {best_model}")
         economic_metrics = self.calculate_economic_metrics(
             label_type,
             final_features,
@@ -896,16 +857,14 @@ class BinaryClassificationFeatureResearch:
             optimal_model=best_model
         )
 
-        print(f"\nResearch completed for {label_type}!")
-        print(f"Best model: {best_model} (score: {model_rankings[best_model]:.4f})")
-        print(f"Economic metrics: Return={economic_metrics.get('total_return', 0):.4f}, "
-              f"Sharpe={economic_metrics.get('sharpe_ratio', 0):.4f}")
+        self.logger.info(
+            f"Research completed for {label_type}. Best model: {best_model} (score: {model_rankings[best_model]:.4f})")
 
         return results
 
     def research_all_labels(self,
                             use_genetic_selection: bool = True,
-                            max_features: int = 15) -> Dict[str, ResearchResults]:
+                            max_features: int = 20) -> Dict[str, ResearchResults]:
         """
         Run comprehensive research for all available label types
 
@@ -918,14 +877,11 @@ class BinaryClassificationFeatureResearch:
         """
         all_results = {}
 
-        print(f"Starting research for {len(self.label_columns)} label types:")
-        print(f"Available labels: {self.label_columns}")
-
-        for i, label_type in enumerate(self.label_columns):
+        for label_type in self.label_columns:
             try:
-                print(f"\n{'=' * 80}")
-                print(f"RESEARCHING LABEL {i + 1}/{len(self.label_columns)}: {label_type}")
-                print(f"{'=' * 80}")
+                self.logger.info(f"\n{'=' * 60}")
+                self.logger.info(f"RESEARCHING LABEL TYPE: {label_type}")
+                self.logger.info(f"{'=' * 60}")
 
                 results = self.comprehensive_research(
                     label_type,
@@ -939,13 +895,10 @@ class BinaryClassificationFeatureResearch:
 
             except Exception as e:
                 self.logger.error(f"Failed to research {label_type}: {e}")
-                print(f"ERROR: Failed to research {label_type}: {e}")
                 continue
 
         # Generate comparative analysis
-        if all_results:
-            print(f"\nGenerating comparative analysis...")
-            self.generate_comparative_analysis(all_results)
+        self.generate_comparative_analysis(all_results)
 
         return all_results
 
@@ -964,7 +917,7 @@ class BinaryClassificationFeatureResearch:
         with open(pickle_file, 'wb') as f:
             pickle.dump(results, f)
 
-        print(f"Results saved to {json_file.name}")
+        self.logger.info(f"Results saved to {json_file} and {pickle_file}")
 
     def generate_comparative_analysis(self, all_results: Dict[str, ResearchResults]):
         """Generate comparative analysis across all label types"""
@@ -1044,7 +997,7 @@ class BinaryClassificationFeatureResearch:
         with open(analysis_file, 'w') as f:
             json.dump(analysis, f, indent=2, default=str)
 
-        print(f"Comparative analysis saved to {analysis_file.name}")
+        self.logger.info(f"Comparative analysis saved to {analysis_file}")
 
         # Print summary
         print(f"\n{'=' * 80}")
@@ -1091,7 +1044,6 @@ Top 10 Features by Importance Score:
             report += f"{i:2d}. {feature:<30} {score:.4f}\n"
 
         report += f"""
-
 MODEL PERFORMANCE COMPARISON
 {'=' * 30}
 """
@@ -1108,7 +1060,6 @@ MODEL PERFORMANCE COMPARISON
             report += f"(AUC: {auc:.3f}, F1: {f1:.3f}, Precision: {precision:.3f})\n"
 
         report += f"""
-
 ECONOMIC PERFORMANCE METRICS
 {'=' * 30}
 Total Return: {results.economic_metrics.get('total_return', 0):.4f}
@@ -1131,10 +1082,9 @@ FEATURE STABILITY ANALYSIS
 """
 
         # Feature stability
-        if results.stability_metrics:
-            stable_features = sorted(results.stability_metrics.items(), key=lambda x: x[1], reverse=True)[:10]
-            for i, (feature, stability) in enumerate(stable_features, 1):
-                report += f"{i:2d}. {feature:<30} {stability:.4f}\n"
+        stable_features = sorted(results.stability_metrics.items(), key=lambda x: x[1], reverse=True)[:10]
+        for i, (feature, stability) in enumerate(stable_features, 1):
+            report += f"{i:2d}. {feature:<30} {stability:.4f}\n"
 
         # Save report
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1143,6 +1093,8 @@ FEATURE STABILITY ANALYSIS
             f.write(report)
 
         print(report)
+        self.logger.info(f"Detailed report saved to {report_file}")
+
         return report
 
 
@@ -1166,7 +1118,6 @@ def quick_feature_research(labeled_data: pd.DataFrame,
     Returns:
         ResearchResults object
     """
-    print("Starting Quick Feature Research...")
     researcher = BinaryClassificationFeatureResearch(labeled_data, results_dir)
 
     if label_type is None:
@@ -1180,7 +1131,7 @@ def quick_feature_research(labeled_data: pd.DataFrame,
 
 
 def comprehensive_feature_research(labeled_data: pd.DataFrame,
-                                   max_features: int = 15,
+                                   max_features: int = 20,
                                    use_genetic: bool = True,
                                    results_dir: str = "feature_research_results") -> Dict[str, ResearchResults]:
     """
@@ -1195,10 +1146,9 @@ def comprehensive_feature_research(labeled_data: pd.DataFrame,
     Returns:
         Dictionary of all research results
     """
-    print("Starting Comprehensive Feature Research...")
     researcher = BinaryClassificationFeatureResearch(labeled_data, results_dir)
 
-    print(f"Research for {len(researcher.label_columns)} label types:")
+    print(f"Starting comprehensive research for {len(researcher.label_columns)} label types:")
     print(f"Available labels: {researcher.label_columns}")
 
     all_results = researcher.research_all_labels(use_genetic, max_features)
@@ -1224,7 +1174,6 @@ def model_comparison_study(labeled_data: pd.DataFrame,
     Returns:
         Nested dictionary of results [feature_set][model][metric]
     """
-    print("Starting Model Comparison Study...")
     researcher = BinaryClassificationFeatureResearch(labeled_data, results_dir)
 
     comparison_results = {}
@@ -1254,95 +1203,55 @@ def model_comparison_study(labeled_data: pd.DataFrame,
 
 # EXAMPLE USAGE AND TESTING
 if __name__ == "__main__":
-    # Example usage - Windows/PyCharm friendly
+    multiprocessing.freeze_support()
+    # Example usage - replace with your actual labeled data
     print("Feature Research System for Binary Classification")
     print("=" * 60)
-    print("Windows/PyCharm Compatible Version")
 
     # Load your labeled data from labeling.py
     try:
         # Assuming you have saved labeled data
         # labeled_data = pd.read_pickle("labeled_data.pkl")
 
-        print("\nTo use this system:")
+        print("To use this system:")
         print("1. Load your labeled data from labeling.py")
         print("2. Run: results = quick_feature_research(labeled_data)")
         print("3. Or run: all_results = comprehensive_feature_research(labeled_data)")
+        print("\nExample:")
 
-        print("\nExample usage:")
-        print("""
-import pandas as pd
-from labeling import label_multiple_events_theory_based
+        import pandas as pd
+        from labeling import label_multiple_events_theory_based, indicated
 
-# Generate labeled data (assuming you have 'indicated' DataFrame)
-# labeled_data, summary = label_multiple_events_theory_based(
-#     indicated,
-#     ['outlier_event', 'momentum_regime_event'],
-#     mode='individual'
-# )
+        # Generate labeled data
+        labeled_data, summary = label_multiple_events_theory_based(
+            indicated,
+            ['outlier_event', 'momentum_regime_event'],
+            mode='individual'
+        )
 
-# Research features for binary classification
-from feature_research_windows import comprehensive_feature_research
+        # Research features for binary classification
 
-# Run comprehensive research (optimized for Windows)
-all_results = comprehensive_feature_research(labeled_data)
+        all_results = comprehensive_feature_research(labeled_data)
 
-# Get best features and models for each label type
-for label_type, results in all_results.items():
-    print(f"Label: {label_type}")
-    print(f"Best Model: {results.optimal_model}")
-    print(f"Best Features: {results.best_features[:5]}")
-    print(f"Expected Return: {results.economic_metrics['total_return']:.4f}")
-    print()
-        """)
-
-        print("\nQuick single label research:")
-        print("""
-# Research just one label type quickly
-results = quick_feature_research(
-    labeled_data, 
-    label_type='outlier_event_label',
-    max_features=10,
-    use_genetic=False  # Skip GA for faster results
-)
-
-print(f"Best features: {results.best_features}")
-print(f"Best model: {results.optimal_model}")
-        """)
-
+        # Get best features and models for each label type
+        for label_type, results in all_results.items():
+            print(f"Label: {label_type}")
+            print(f"Best Model: {results.optimal_model}")
+            print(f"Best Features: {results.best_features[:5]}")
+            print(f"Expected Return: {results.economic_metrics['total_return']:.4f}")
+            print()
     except Exception as e:
         print(f"Note: To test the system, load your labeled data first: {e}")
 
-    print("\nOptimizations for Windows/PyCharm:")
-    print("• All n_jobs=1 (single-threaded)")
-    print("• Reduced population sizes for genetic algorithm")
-    print("• Fewer cross-validation splits")
-    print("• Progress indicators for long operations")
-    print("• No multiprocessing dependencies")
-    print("• Compatible with PyCharm debugger")
+        print("\nFeatures of this research system:")
+        print("• Genetic Algorithm feature selection")
+        print("• Comprehensive model comparison (12+ algorithms)")
+        print("• Economic performance evaluation")
+        print("• Feature stability testing")
+        print("• Automated report generation")
+        print("• Binary classification optimization")
+        print("• Time series aware validation")
+        print("• Real trading metrics (Sharpe, drawdown, win rate)")
 
-    print("\nFeatures of this research system:")
-    print("• Genetic Algorithm feature selection")
-    print("• Comprehensive model comparison (12+ algorithms)")
-    print("• Economic performance evaluation")
-    print("• Feature stability testing")
-    print("• Automated report generation")
-    print("• Binary classification optimization")
-    print("• Time series aware validation")
-    print("• Real trading metrics (Sharpe, drawdown, win rate)")
-
-    print(f"\nReady to research optimal features and models for binary classification!")
-    print("Results will predict: 'Will price rise above level X within Y time?'")
-
-# Quick single label research
-results = quick_feature_research(labeled_data, use_genetic=False)
-
-# Full research for all labels
-all_results = comprehensive_feature_research(labeled_data, max_features=5)
-
-# Model comparison
-feature_sets = {
-    'technical': ['RSI', 'MACD', 'ATR'],
-    'volume': ['Volume', 'VWAP']
-}
-comparison = model_comparison_study(labeled_data, 'outlier_event_label', feature_sets)
+        print(f"\nReady to research optimal features and models for binary classification!")
+        print("Results will predict: 'Will price rise above level X within Y time?'")
