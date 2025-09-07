@@ -921,7 +921,7 @@ def example_usage(resampled_data):
 # Usage example
 
     # Load your resampled data
-data = pd.read_csv('resampled5mEE.csv')[:10000]
+data = pd.read_csv('resampled5mEE.csv')
 
 # Create enhanced dataset with Elder's methodology
 indicated, summ = example_usage(data)

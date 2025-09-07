@@ -1490,4 +1490,3 @@ def create_feature_research_pipeline(labeled_data: Union[pd.DataFrame, str, Path
 
     return pipeline_results
 
-
