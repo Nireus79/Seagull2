@@ -1338,7 +1338,7 @@ print(f"Best model: {results.optimal_model}")
 results = quick_feature_research(labeled_data, use_genetic=False)
 
 # Full research for all labels
-all_results = comprehensive_feature_research(labeled_data, max_features=15)
+all_results = comprehensive_feature_research(labeled_data, max_features=5)
 
 # Model comparison
 feature_sets = {

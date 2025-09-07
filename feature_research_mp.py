@@ -60,9 +60,9 @@ except ImportError:
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_X_y, check_array
 import multiprocessing
+
 warnings.filterwarnings('ignore')
 
-from labeling import labeled_data
 
 @dataclass
 class ResearchResults:
@@ -729,7 +729,7 @@ class BinaryClassificationFeatureResearch:
             # Performance metrics
             economic_metrics['total_return'] = strategy_returns.sum()
             economic_metrics['mean_return_per_trade'] = strategy_returns[strategy_returns != 0].mean() if (
-                        strategy_returns != 0).any() else 0
+                    strategy_returns != 0).any() else 0
             economic_metrics['win_rate'] = (strategy_returns > 0).mean()
             economic_metrics['num_trades'] = (strategy_returns != 0).sum()
 
@@ -1218,152 +1218,41 @@ if __name__ == "__main__":
         print("2. Run: results = quick_feature_research(labeled_data)")
         print("3. Or run: all_results = comprehensive_feature_research(labeled_data)")
         print("\nExample:")
-        print("""
-import pandas as pd
-from labeling import label_multiple_events_theory_based, indicated
 
-# Generate labeled data
-labeled_data, summary = label_multiple_events_theory_based(
-    indicated,
-    ['outlier_event', 'momentum_regime_event'],
-    mode='individual'
-)
+        import pandas as pd
+        from labeling import label_multiple_events_theory_based, indicated
 
-# Research features for binary classification
-from feature_research import comprehensive_feature_research
+        # Generate labeled data
+        labeled_data, summary = label_multiple_events_theory_based(
+            indicated,
+            ['outlier_event', 'momentum_regime_event'],
+            mode='individual'
+        )
 
-all_results = comprehensive_feature_research(labeled_data)
+        # Research features for binary classification
+        from feature_research import comprehensive_feature_research
 
-# Get best features and models for each label type
-for label_type, results in all_results.items():
-    print(f"Label: {label_type}")
-    print(f"Best Model: {results.optimal_model}")
-    print(f"Best Features: {results.best_features[:5]}")
-    print(f"Expected Return: {results.economic_metrics['total_return']:.4f}")
-    print()
-        """)
+        all_results = comprehensive_feature_research(labeled_data)
 
+        # Get best features and models for each label type
+        for label_type, results in all_results.items():
+            print(f"Label: {label_type}")
+            print(f"Best Model: {results.optimal_model}")
+            print(f"Best Features: {results.best_features[:5]}")
+            print(f"Expected Return: {results.economic_metrics['total_return']:.4f}")
+            print()
     except Exception as e:
         print(f"Note: To test the system, load your labeled data first: {e}")
 
-    print("\nFeatures of this research system:")
-    print("• Genetic Algorithm feature selection")
-    print("• Comprehensive model comparison (12+ algorithms)")
-    print("• Economic performance evaluation")
-    print("• Feature stability testing")
-    print("• Automated report generation")
-    print("• Binary classification optimization")
-    print("• Time series aware validation")
-    print("• Real trading metrics (Sharpe, drawdown, win rate)")
+        print("\nFeatures of this research system:")
+        print("• Genetic Algorithm feature selection")
+        print("• Comprehensive model comparison (12+ algorithms)")
+        print("• Economic performance evaluation")
+        print("• Feature stability testing")
+        print("• Automated report generation")
+        print("• Binary classification optimization")
+        print("• Time series aware validation")
+        print("• Real trading metrics (Sharpe, drawdown, win rate)")
 
-    print(f"\nReady to research optimal features and models for binary classification!")
-    print("Results will predict: 'Will price rise above level X within Y time?'")
-
-
-"""Key Features of the Script
-1. Intelligent Feature Selection
-
-Genetic Algorithm optimization for finding optimal feature combinations
-Multi-method importance analysis (Random Forest, Gradient Boosting, Mutual Information, Statistical tests)
-Automatic correlation filtering to remove redundant features
-Feature stability testing across time periods
-
-2. Comprehensive Model Zoo (12+ Algorithms)
-
-Tree-based: Random Forest, Extra Trees, Gradient Boosting, XGBoost, LightGBM
-Linear: Logistic Regression, Ridge Classifier, SVM
-Instance-based: K-Nearest Neighbors
-Probabilistic: Naive Bayes, Linear/Quadratic Discriminant Analysis
-Ensemble: AdaBoost, Bagging, Voting Classifiers
-
-3. Economic Performance Evaluation
-
-Trading-specific metrics: Total return, Sharpe ratio, win rate, max drawdown
-Classification metrics: AUC-ROC, F1-score, precision, recall
-Realistic backtesting with time series cross-validation
-Commission-aware analysis integrated with your labeling system
-
-4. Research Automation
-
-Single label research: quick_feature_research()
-All labels research: comprehensive_feature_research()
-Model comparison: model_comparison_study()
-Automated reporting and result saving
-
-How to Use
-Basic Usage:
-python# After running your labeling.py script
-from feature_research import comprehensive_feature_research
-
-# Research all label types
-all_results = comprehensive_feature_research(labeled_data)
-
-# Check results
-for label_type, results in all_results.items():
-    print(f"Label: {label_type}")
-    print(f"Best Model: {results.optimal_model}")
-    print(f"Top Features: {results.best_features[:5]}")
-    print(f"Expected Return: {results.economic_metrics['total_return']:.4f}")
-Advanced Usage:
-python# Research specific label with custom parameters
-from feature_research import quick_feature_research
-
-results = quick_feature_research(
-    labeled_data, 
-    label_type='outlier_event_label',
-    max_features=15,
-    use_genetic=True
-)
-
-# Compare different feature sets
-from feature_research import model_comparison_study
-
-feature_sets = {
-    'technical_only': ['RSI', 'MACD', 'ATR'],
-    'volume_based': ['Volume', 'VWAP', 'volume_sma'],
-    'combined': ['RSI', 'MACD', 'Volume', 'ATR', 'VWAP']
-}
-
-comparison = model_comparison_study(
-    labeled_data,
-    'outlier_event_label',
-    feature_sets
-)
-Key Advantages for Binary Classification
-1. Optimized for "Price Rise Prediction"
-
-Time series validation respects temporal order
-Economic metrics focused on trading profitability
-Real-world constraints from your commission-aware labeling
-
-2. Intelligent Search
-
-Genetic algorithms explore feature combinations you'd never manually test
-Multi-objective optimization balances accuracy, stability, and profitability
-Automated hyperparameter consideration across 12+ model types
-
-3. Comprehensive Analysis
-
-Feature stability across different market regimes
-Model robustness testing with cross-validation
-Economic viability with real trading metrics
-Comparative analysis across all your label types
-
-4. Production-Ready Output
-
-JSON and pickle result formats
-Detailed reports with rankings and metrics
-Logging system for debugging and monitoring
-Modular design for easy integration
-
-Expected Research Insights
-The system will discover:
-
-Which technical indicators work best for each event type
-Optimal model types for different market patterns
-Feature combinations that improve prediction accuracy
-Economic viability of different labeling strategies
-Temporal stability of predictive features
-Risk-adjusted performance rankings
-
-This script transforms your sophisticated labeling system into a complete machine learning research pipeline, specifically optimized for binary classification of price movement predictions. It will help you identify the most profitable and reliable combinations of features and models for your trading strategies."""
+        print(f"\nReady to research optimal features and models for binary classification!")
+        print("Results will predict: 'Will price rise above level X within Y time?'")

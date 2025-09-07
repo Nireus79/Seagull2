@@ -424,7 +424,7 @@ freq = '5min'
 time_frames = ['30min', '4H', '1D']
 # Run with your ETH data
 resampler, enhanced_data = process_data(raw_data, freq, time_frames)
-print(resampler)
-print(enhanced_data)
-enhanced_data.to_csv('resampled5mEE.csv', index=False)
+# print(resampler)
+# print(enhanced_data)
+# enhanced_data.to_csv('resampled5mEE.csv', index=False)
 

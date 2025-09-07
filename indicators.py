@@ -930,7 +930,7 @@ indicated, summ = example_usage(data)
 # indicated.to_csv('indicatedEE_elder.csv', index=False)
 
 print("Dataset created successfully!")
-print(indicated)
+# print(indicated)
 print("\nColumn names:")
 for i, col in enumerate(indicated.columns):
     print(f"{i + 1:3d}. {col}")
@@ -938,3 +938,5 @@ for i, col in enumerate(indicated.columns):
 print(f"\nSummary Statistics:")
 for key, value in summ.items():
     print(f"{key}: {value}")
+
+print('indication --------------------------------------------------------------------------------------------------')
