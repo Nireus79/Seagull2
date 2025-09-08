@@ -761,10 +761,13 @@ class OptimizedBinaryClassificationFeatureResearch:
             test_returns = returns_data.iloc[split_point:]
             strategy_returns = np.where(predictions == 1, test_returns, 0)
 
+            # Convert to pandas Series to use pandas methods
+            strategy_returns = pd.Series(strategy_returns, index=test_returns.index)
+
             economic_metrics.update({
                 'total_return': strategy_returns.sum(),
                 'mean_return_per_trade': strategy_returns[strategy_returns != 0].mean() if (
-                            strategy_returns != 0).any() else 0,
+                        strategy_returns != 0).any() else 0,
                 'win_rate': (strategy_returns > 0).mean(),
                 'num_trades': (strategy_returns != 0).sum(),
                 'sharpe_ratio': strategy_returns.mean() / (strategy_returns.std() + 1e-8) * np.sqrt(
