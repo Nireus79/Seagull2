@@ -3,8 +3,11 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional, Union
 import warnings
 import ta
+from itertools import combinations
 
 warnings.filterwarnings('ignore')
+
+
 # pd.set_option('display.max_columns', None)
 
 
@@ -14,6 +17,7 @@ class FlexibleTechnicalIndicators:
     - Base indicators calculated on 30min actual data (sampled every 30min)
     - Results presented at 5min intervals (forward-filled)
     - Includes CUSUM and Bollinger crossing events
+    - Enhanced with comprehensive co-event detection
     """
 
     def __init__(self, resampled_data: pd.DataFrame, config: Dict = None, low_timeframe: str = "30min"):
@@ -44,7 +48,7 @@ class FlexibleTechnicalIndicators:
 
     def _default_config(self) -> Dict:
         """Default configuration for indicators and events"""
-        return {
+        config = {
             # Standard indicator periods (applied to low_timeframe, e.g., 30min)
             'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
             'sma_periods': {'short': 20, 'medium': 50, 'long': 200},
@@ -85,6 +89,45 @@ class FlexibleTechnicalIndicators:
                 'return_lookback': 100,
                 'outlier_threshold': 2.5,
                 'momentum_regime_threshold': 0.3,
+            }
+        }
+
+        # Add co-event configuration
+        config.update(self._default_co_event_config())
+        return config
+
+    def _default_co_event_config(self) -> Dict:
+        """Default configuration for co-event detection"""
+        return {
+            'co_event_config': {
+                'enable_2way': True,
+                'enable_3way': True,
+                'enable_combined': True,
+                'time_window': 1,  # Events within N periods (0 = exact same time, >0 = within window)
+                'min_strength_threshold': 0.0,  # Minimum individual event strength (if available)
+                'create_named_combinations': True,  # Create specific named combinations
+                'create_generic_combinations': True,  # Create generic "any_2_events" style columns
+                'max_combinations': 50,  # Limit number of combinations to prevent explosion
+
+                # Specific meaningful combinations (financial logic)
+                'priority_2way_combinations': [
+                    ('CUSUM_event', 'BB_upper_cross'),
+                    ('CUSUM_event', 'BB_lower_cross'),
+                    ('vpd_volatility_event', 'momentum_regime_event'),
+                    ('outlier_event', 'BB_expansion'),
+                    ('momentum_regime_event', 'BB_squeeze'),
+                    ('vpd_volatility_event', 'outlier_event'),
+                    ('BB_upper_cross', 'momentum_regime_event'),
+                    ('BB_lower_cross', 'momentum_regime_event'),
+                ],
+
+                'priority_3way_combinations': [
+                    ('CUSUM_event', 'vpd_volatility_event', 'momentum_regime_event'),
+                    ('BB_upper_cross', 'outlier_event', 'momentum_regime_event'),
+                    ('BB_lower_cross', 'outlier_event', 'momentum_regime_event'),
+                    ('vpd_volatility_event', 'outlier_event', 'momentum_regime_event'),
+                    ('CUSUM_event', 'BB_expansion', 'momentum_regime_event'),
+                ]
             }
         }
 
@@ -174,7 +217,7 @@ class FlexibleTechnicalIndicators:
         if close_col in low_tf_data.columns:
             # Keep only rows where the low TF close price changes (actual new bars)
             mask = (low_tf_data[close_col] != low_tf_data[close_col].shift(1)) | (
-                        low_tf_data.index == low_tf_data.index[0])
+                    low_tf_data.index == low_tf_data.index[0])
             unique_periods = low_tf_data[mask].copy()
         else:
             unique_periods = low_tf_data.copy()
@@ -731,31 +774,308 @@ class FlexibleTechnicalIndicators:
 
         return data
 
-    def create_complete_dataset(self) -> pd.DataFrame:
-        """Create complete dataset with all indicators and events using Elder's methodology"""
+    # Co-Event Detection Methods
+    def add_co_event_detection(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add comprehensive co-event detection with 2-way, 3-way, and combined combinations
+        """
 
-        print("Step 1/7: Adding base indicators calculated on low timeframe data...")
+        # Define base event columns (existing individual events)
+        base_event_columns = [
+            'vpd_volatility_event',
+            'outlier_event',
+            'momentum_regime_event',
+            'CUSUM_event',
+            'BB_upper_cross',
+            'BB_lower_cross',
+            'BB_middle_cross_up',
+            'BB_middle_cross_down',
+            'BB_squeeze',
+            'BB_expansion'
+        ]
+
+        # Filter to only existing columns
+        existing_events = [col for col in base_event_columns if col in data.columns]
+
+        print(f"Detected {len(existing_events)} base event types for co-event analysis")
+
+        # Get co-event configuration
+        co_event_config = self.config.get('co_event_config', {})
+
+        # Add 2-way co-events
+        if co_event_config.get('enable_2way', True):
+            data = self._add_2way_co_events(data, existing_events, co_event_config)
+
+        # Add 3-way co-events
+        if co_event_config.get('enable_3way', True):
+            data = self._add_3way_co_events(data, existing_events, co_event_config)
+
+        # Add combined 2-way and 3-way summary features
+        if co_event_config.get('enable_combined', True):
+            data = self._add_combined_co_events(data, co_event_config)
+
+        return data
+
+    def _add_2way_co_events(self, data: pd.DataFrame, event_columns: List[str], config: Dict) -> pd.DataFrame:
+        """Add 2-way co-event combinations"""
+
+        time_window = config.get('time_window', 1)
+        create_named = config.get('create_named_combinations', True)
+        create_generic = config.get('create_generic_combinations', True)
+        max_combinations = config.get('max_combinations', 50)
+
+        # Priority combinations first (meaningful financial combinations)
+        priority_combinations = config.get('priority_2way_combinations', [])
+        combinations_created = 0
+
+        if create_named:
+            print("Creating priority 2-way co-events...")
+            for event1, event2 in priority_combinations:
+                if event1 in event_columns and event2 in event_columns and combinations_created < max_combinations:
+                    col_name = f"covent_2way_{event1.replace('_event', '')}_{event2.replace('_event', '')}"
+                    data[col_name] = self._detect_co_event_within_window(
+                        data, [event1, event2], time_window
+                    )
+                    combinations_created += 1
+
+        # Generic combinations if requested and within limits
+        if create_generic and combinations_created < max_combinations:
+            print("Creating additional 2-way co-events...")
+            remaining_combinations = max_combinations - combinations_created
+
+            all_2way_combinations = list(combinations(event_columns, 2))
+            # Remove already created priority combinations
+            priority_set = set(priority_combinations)
+            additional_combinations = [combo for combo in all_2way_combinations
+                                       if combo not in priority_set and (combo[1], combo[0]) not in priority_set]
+
+            # Limit to remaining budget
+            additional_combinations = additional_combinations[:remaining_combinations]
+
+            for event1, event2 in additional_combinations:
+                col_name = f"covent_2way_{event1.replace('_event', '')}_{event2.replace('_event', '')}"
+                data[col_name] = self._detect_co_event_within_window(
+                    data, [event1, event2], time_window
+                )
+                combinations_created += 1
+
+        # Summary 2-way features
+        data['any_2way_covent'] = data[[col for col in data.columns if 'covent_2way_' in col]].any(axis=1)
+        data['count_2way_covent'] = data[[col for col in data.columns if 'covent_2way_' in col]].sum(axis=1)
+
+        print(f"Created {combinations_created} 2-way co-events")
+        return data
+
+    def _add_3way_co_events(self, data: pd.DataFrame, event_columns: List[str], config: Dict) -> pd.DataFrame:
+        """Add 3-way co-event combinations"""
+
+        time_window = config.get('time_window', 1)
+        create_named = config.get('create_named_combinations', True)
+        create_generic = config.get('create_generic_combinations', True)
+        max_combinations = config.get('max_combinations', 50)
+
+        combinations_created = 0
+
+        # Priority 3-way combinations first
+        priority_combinations = config.get('priority_3way_combinations', [])
+
+        if create_named:
+            print("Creating priority 3-way co-events...")
+            for event1, event2, event3 in priority_combinations:
+                if (event1 in event_columns and event2 in event_columns and
+                        event3 in event_columns and combinations_created < max_combinations):
+                    col_name = (f"covent_3way_{event1.replace('_event', '')}_{event2.replace('_event', '')}_"
+                                f"{event3.replace('_event', '')}")
+                    data[col_name] = self._detect_co_event_within_window(
+                        data, [event1, event2, event3], time_window
+                    )
+                    combinations_created += 1
+
+        # Additional generic 3-way combinations if requested and space allows
+        if create_generic and combinations_created < max_combinations:
+            print("Creating additional 3-way co-events...")
+            remaining_combinations = max_combinations - combinations_created
+
+            # Limit to most important events for 3-way (avoid explosion)
+            important_events = event_columns[:6]  # Take top 6 events to limit combinations
+
+            all_3way_combinations = list(combinations(important_events, 3))
+            priority_set = set(priority_combinations)
+            additional_combinations = [combo for combo in all_3way_combinations
+                                       if combo not in priority_set]
+
+            # Limit to remaining budget
+            additional_combinations = additional_combinations[:remaining_combinations]
+
+            for event1, event2, event3 in additional_combinations:
+                col_name = (f"covent_3way_{event1.replace('_event', '')}_{event2.replace('_event', '')}_"
+                            f"{event3.replace('_event', '')}")
+                data[col_name] = self._detect_co_event_within_window(
+                    data, [event1, event2, event3], time_window
+                )
+                combinations_created += 1
+
+        # Summary 3-way features
+        data['any_3way_covent'] = data[[col for col in data.columns if 'covent_3way_' in col]].any(axis=1)
+        data['count_3way_covent'] = data[[col for col in data.columns if 'covent_3way_' in col]].sum(axis=1)
+
+        print(f"Created {combinations_created} 3-way co-events")
+        return data
+
+    def _add_combined_co_events(self, data: pd.DataFrame, config: Dict) -> pd.DataFrame:
+        """Add combined co-event features and meta-analysis"""
+
+        # Overall co-event summary
+        data['any_covent'] = (data.get('any_2way_covent', False) | data.get('any_3way_covent', False))
+        data['total_covent_count'] = (data.get('count_2way_covent', 0) + data.get('count_3way_covent', 0))
+
+        # Co-event intensity (how many simultaneous co-events)
+        data['covent_intensity'] = data['total_covent_count']
+
+        # High-intensity co-event periods (multiple co-events happening)
+        data['high_intensity_covent'] = data['covent_intensity'] >= 2
+        data['very_high_intensity_covent'] = data['covent_intensity'] >= 3
+
+        # Co-event persistence (co-events lasting multiple periods)
+        if 'any_covent' in data.columns:
+            data['covent_persistence'] = data['any_covent'].rolling(window=3, min_periods=1).sum()
+            data['sustained_covent'] = data['covent_persistence'] >= 2
+
+        # Event escalation (single events evolving into co-events)
+        individual_event_cols = [col for col in data.columns if '_event' in col and 'covent' not in col]
+        if individual_event_cols:
+            data['individual_event_count'] = data[individual_event_cols].sum(axis=1)
+            data['event_escalation'] = (data['individual_event_count'] >= 1) & (data['any_covent'])
+
+        # Special confluence patterns
+        data = self._add_confluence_patterns(data)
+
+        print("Added combined co-event features")
+        return data
+
+    def _detect_co_event_within_window(self, data: pd.DataFrame, event_columns: List[str], window: int) -> pd.Series:
+        """
+        Detect co-events within a time window
+
+        Args:
+            data: DataFrame containing event columns
+            event_columns: List of event column names to check
+            window: Time window (0 = exact same time, >0 = within N periods)
+
+        Returns:
+            Boolean series indicating co-event occurrence
+        """
+
+        if window == 0:
+            # Exact simultaneous events
+            return data[event_columns].all(axis=1)
+
+        else:
+            # Events within window
+            co_events = pd.Series(False, index=data.index)
+
+            for i in range(len(data)):
+                # Check if all events occur within window around current time
+                start_idx = max(0, i - window)
+                end_idx = min(len(data), i + window + 1)
+
+                window_data = data[event_columns].iloc[start_idx:end_idx]
+
+                # Check if all event types have at least one occurrence in window
+                events_in_window = window_data.any(axis=0)
+                co_events.iloc[i] = events_in_window.all()
+
+            return co_events
+
+    def _add_confluence_patterns(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Add special confluence pattern detection"""
+
+        # Trend reversal confluence (CUSUM + Bollinger + momentum)
+        if all(col in data.columns for col in ['CUSUM_event', 'momentum_regime_event']):
+            bb_cross_cols = [col for col in data.columns if 'BB_' in col and 'cross' in col]
+            if bb_cross_cols:
+                bb_any_cross = data[bb_cross_cols].any(axis=1)
+                data['trend_reversal_confluence'] = (data['CUSUM_event'] &
+                                                     data['momentum_regime_event'] &
+                                                     bb_any_cross)
+
+        # Breakout confluence (volatility + price + volume)
+        if all(col in data.columns for col in ['vpd_volatility_event', 'outlier_event', 'BB_expansion']):
+            data['breakout_confluence'] = (data['vpd_volatility_event'] &
+                                           data['outlier_event'] &
+                                           data['BB_expansion'])
+
+        # Squeeze release confluence
+        if all(col in data.columns for col in ['BB_squeeze', 'BB_expansion', 'momentum_regime_event']):
+            # Squeeze followed by expansion with momentum change
+            squeeze_to_expansion = (data['BB_squeeze'].shift(1) | data['BB_squeeze'].shift(2)) & data['BB_expansion']
+            data['squeeze_release_confluence'] = (squeeze_to_expansion & data['momentum_regime_event'])
+
+        return data
+
+    def detect_events_enhanced(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Enhanced event detection including co-events
+        This replaces the original detect_events method
+        """
+
+        # First run original event detection
+        data = self.detect_events(data)  # This calls the original method
+
+        # Then add co-event detection
+        data = self.add_co_event_detection(data)
+
+        # Update overall event indicators to include co-events
+        covent_cols = [col for col in data.columns if
+                       'covent' in col and col not in ['any_covent', 'total_covent_count']]
+
+        if covent_cols:
+            # Update 'any_event' to include co-events
+            data['any_event_with_covent'] = (data['any_event'] | data.get('any_covent', False))
+
+            # Enhanced event type encoding
+            data['enhanced_event_type'] = data['event_type'].copy()
+
+            # Add co-event type encoding (starting from 20 to avoid conflicts)
+            data.loc[data.get('any_2way_covent', False) & ~data['any_event'], 'enhanced_event_type'] = 20
+            data.loc[data.get('any_3way_covent', False) & ~data['any_event'], 'enhanced_event_type'] = 21
+            data.loc[data.get('high_intensity_covent', False), 'enhanced_event_type'] = 22
+            data.loc[data.get('trend_reversal_confluence', False), 'enhanced_event_type'] = 23
+            data.loc[data.get('breakout_confluence', False), 'enhanced_event_type'] = 24
+            data.loc[data.get('squeeze_release_confluence', False), 'enhanced_event_type'] = 25
+
+        return data
+
+    def create_complete_dataset(self) -> pd.DataFrame:
+        """
+        Enhanced version of create_complete_dataset that includes co-events
+        """
+
+        print("Step 1/8: Adding base indicators calculated on low timeframe data...")
         data = self.add_base_indicators()
 
-        print("Step 2/7: Adding CUSUM detection...")
+        print("Step 2/8: Adding CUSUM detection...")
         data = self.add_cusum_detection(data)
 
-        print("Step 3/7: Adding Bollinger Band crossing events...")
+        print("Step 3/8: Adding Bollinger Band crossing events...")
         data = self.add_bollinger_crossing_events(data)
 
-        print("Step 4/7: Adding normalized/relative indicators...")
+        print("Step 4/8: Adding normalized/relative indicators...")
         data = self.add_normalized_indicators(data)
 
-        print("Step 5/7: Adding higher timeframe context...")
+        print("Step 5/8: Adding higher timeframe context...")
         data = self.add_higher_timeframe_context(data)
 
-        print("Step 6/7: Adding event detection features...")
+        print("Step 6/8: Adding event detection features...")
         data = self.add_event_detection_features(data)
 
-        print("Step 7/7: Detecting events...")
+        print("Step 7/8: Detecting individual events...")
         data = self.detect_events(data)
 
-        print(f"Complete dataset shape: {data.shape}")
+        print("Step 8/8: Adding co-event detection...")
+        data = self.add_co_event_detection(data)
+
+        print(f"Complete dataset with co-events shape: {data.shape}")
         return data
 
     def get_summary_statistics(self, data: pd.DataFrame) -> Dict:
@@ -782,7 +1102,8 @@ class FlexibleTechnicalIndicators:
                     x in col for x in ['zscore', 'breakout', 'regime', 'CUSUM', 'BB_'])]),
                 'cusum_features': len([col for col in data.columns if 'CUSUM' in col]),
                 'bollinger_features': len([col for col in data.columns if 'BB_' in col and any(
-                    x in col for x in ['cross', 'squeeze', 'expansion'])])
+                    x in col for x in ['cross', 'squeeze', 'expansion'])]),
+                'co_event_features': len([col for col in data.columns if 'covent' in col])
             }
         }
 
@@ -810,6 +1131,16 @@ class FlexibleTechnicalIndicators:
                 10: "Multiple events (4+ types)"
             }
 
+        # Co-event statistics
+        if 'any_covent' in data.columns:
+            covent_stats = {
+                'total_co_events': int(data['any_covent'].sum()),
+                'co_event_rate_pct': round(data['any_covent'].mean() * 100, 2),
+                'avg_co_event_intensity': round(data['covent_intensity'].mean(), 2),
+                'high_intensity_periods': int(data.get('high_intensity_covent', pd.Series(False)).sum())
+            }
+            summary['co_events'] = covent_stats
+
         # CUSUM statistics
         if 'CUSUM_event' in data.columns:
             cusum_stats = {
@@ -834,7 +1165,7 @@ def create_enhanced_dataset(resampled_data: pd.DataFrame,
                             custom_config: Dict = None,
                             low_timeframe: str = "30min") -> Tuple[pd.DataFrame, Dict]:
     """
-    Main function to create enhanced dataset with Elder's methodology and additional events
+    Main function to create enhanced dataset with Elder's methodology and co-events
 
     Args:
         resampled_data: DataFrame from FlexiblePointInTimeResampler
@@ -857,13 +1188,13 @@ def create_enhanced_dataset(resampled_data: pd.DataFrame,
     return enhanced_data, summary
 
 
-# Example usage with Elder's methodology
+# Example usage with Elder's methodology and co-events
 def example_usage(resampled_data):
     """
-    Example of how to use with Elder's triple screen methodology
+    Example of how to use with Elder's approach and co-event detection
     """
 
-    # Configuration for Elder's approach with 30min base indicators
+    # Configuration for Elder's approach with 30min base indicators and co-events
     elder_config = {
         # Base indicators calculated on 30min data (Elder's intermediate timeframe)
         'ema_periods': {'fast': 12, 'medium': 26, 'slow': 50},
@@ -895,48 +1226,34 @@ def example_usage(resampled_data):
             'vol_breakout_threshold': 1.5,  # More sensitive
             'outlier_threshold': 2.0,
             'momentum_regime_threshold': 0.25,
+        },
+
+        # Co-event configuration
+        'co_event_config': {
+            'enable_2way': True,
+            'enable_3way': True,
+            'enable_combined': True,
+            'time_window': 2,  # Allow events within 2 periods (1-hour window)
+            'max_combinations': 30,  # Limit for performance
+            'create_named_combinations': True,
+            'create_generic_combinations': False,  # Only create meaningful combinations
+
+            'priority_2way_combinations': [
+                ('CUSUM_event', 'BB_upper_cross'),
+                ('CUSUM_event', 'BB_lower_cross'),
+                ('vpd_volatility_event', 'momentum_regime_event'),
+                ('outlier_event', 'BB_expansion'),
+                ('momentum_regime_event', 'BB_squeeze'),
+            ],
+
+            'priority_3way_combinations': [
+                ('CUSUM_event', 'vpd_volatility_event', 'momentum_regime_event'),
+                ('BB_upper_cross', 'outlier_event', 'momentum_regime_event'),
+                ('vpd_volatility_event', 'outlier_event', 'momentum_regime_event'),
+            ]
         }
     }
 
-    print("Enhanced Technical Indicators System with Elder's Methodology")
-    print("============================================================")
-    print("✓ Base indicators calculated on 30min actual data (Elder's intermediate TF)")
-    print("✓ Results presented at 5min intervals for real-time monitoring")
-    print("✓ Higher timeframe context for trend analysis")
-    print("✓ CUSUM change detection")
-    print("✓ Bollinger Band crossing events")
-    print("✓ Volume-Price divergence detection")
-    print("✓ Momentum regime change detection")
-
-    # Create enhanced dataset with Elder's methodology
-    enhanced_data, summary = create_enhanced_dataset(
-        resampled_data,
-        elder_config,
-        low_timeframe="30min"  # This is key for Elder's approach
-    )
-
-    return enhanced_data, summary
-
-
-# Usage example
-
-    # Load your resampled data
-data = pd.read_csv('resampled5mEE.csv')
-
-# Create enhanced dataset with Elder's methodology
-indicated, summ = example_usage(data)
-
-# Save results
-# indicated.to_csv('indicatedEE_elder.csv', index=False)
-
-print("Dataset created successfully!")
-# print(indicated)
-print("\nColumn names:")
-for i, col in enumerate(indicated.columns):
-    print(f"{i + 1:3d}. {col}")
-
-print(f"\nSummary Statistics:")
-for key, value in summ.items():
-    print(f"{key}: {value}")
-
-print('indication --------------------------------------------------------------------------------------------------')
+    print("Enhanced Technical Indicators System with Elder's Methodology & Co-Events")
+    print("=========================================================================")
+    print("✓")

@@ -309,8 +309,4 @@ research_with_class(labeled_data)
 #  8. 1D_momentum_medium             0.0684
 #  9. momentum_ratio_4H              -0.0000
 # 10. BB_width_pct                   -0.0009
-#
-# 2025-09-08 00:09:55,603 - WARNING - Economic metrics calculation failed: 'numpy.ndarray' object has no attribute 'expanding'
-# 2025-09-08 00:09:55,603 - INFO - Research completed for CUSUM_event_label. Best model: decision_tree (score: 0.4423), Features: 20
-# 2025-09-08 00:09:55,605 - INFO - Report saved to class_results\report_CUSUM_event_label_20250908_000955.txt
 
