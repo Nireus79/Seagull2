@@ -1359,4 +1359,717 @@ class AgenticFeatureResearchAgent:
             insights.append(AgentInsight(
                 insight_type="profitable_strategy",
                 description=f"Profitable strategy identified for {label_type} using {best_model}. "
-                            f"Expected return: {best_performance.get('total_return', 0):.3f
+                            f"Expected return: {best_performance.get('total_return', 0):.3f}",
+                confidence=0.8,
+                supporting_evidence=best_performance,
+                timestamp=datetime.now(),
+                actionable=True
+            ))
+
+        # Market regime insight
+        if self.current_regime in [MarketRegime.CRISIS, MarketRegime.SIDEWAYS_HIGH_VOL]:
+            insights.append(AgentInsight(
+                insight_type="market_regime_warning",
+                description=f"Research conducted during {self.current_regime.value}. "
+                            f"Strategy may need adaptation for different market conditions.",
+                confidence=0.9,
+                supporting_evidence={'current_regime': self.current_regime.value},
+                timestamp=datetime.now(),
+                actionable=True
+            ))
+
+        # Model diversity insight
+        if len(model_results) > 1:
+            auc_scores = [r.get('auc_roc', 0) for r in model_results.values()]
+            if max(auc_scores) - min(auc_scores) < 0.05:  # Very similar performance
+                insights.append(AgentInsight(
+                    insight_type="model_similarity",
+                    description=f"Multiple models show similar performance for {label_type}. "
+                                f"Consider ensemble or simpler model for efficiency.",
+                    confidence=0.7,
+                    supporting_evidence={'model_scores': dict(zip(model_results.keys(), auc_scores))},
+                    timestamp=datetime.now(),
+                    actionable=True
+                ))
+
+        return insights
+
+    def comprehensive_intelligent_research(self, max_time_minutes: int = 60) -> Dict[str, Any]:
+        """Conduct comprehensive intelligent research with time management"""
+
+        start_time = datetime.now()
+        max_time_seconds = max_time_minutes * 60
+
+        if self.verbose:
+            self.logger.info(f"\n🚀 STARTING COMPREHENSIVE INTELLIGENT RESEARCH")
+            self.logger.info(f"{'=' * 70}")
+            self.logger.info(f"Time budget: {max_time_minutes} minutes")
+            self.logger.info(f"Market regime: {self.current_regime.value}")
+            self.logger.info(f"Available events: {len(self.label_columns)}")
+
+        # Create adaptive research strategy
+        strategy = self._create_research_strategy()
+
+        if self.verbose:
+            self.logger.info(f"\n📋 RESEARCH STRATEGY")
+            self.logger.info(
+                f"Priority events: {strategy.priority_events[:5]}{'...' if len(strategy.priority_events) > 5 else ''}")
+            self.logger.info(f"Exploration vs Exploitation: {strategy.exploration_vs_exploitation:.2f}")
+            self.logger.info(f"Preferred method: {strategy.feature_selection_method}")
+
+        # Research results storage
+        research_results = {}
+        failed_events = []
+        total_insights = []
+
+        # Research each event with time management
+        for i, label_type in enumerate(strategy.priority_events):
+            current_time = datetime.now()
+            elapsed_seconds = (current_time - start_time).total_seconds()
+
+            # Check time budget
+            if elapsed_seconds >= max_time_seconds * 0.9:  # 90% of time used
+                if self.verbose:
+                    self.logger.info(f"⏰ Time budget nearly exhausted. Stopping research.")
+                break
+
+            # Calculate allocated time for this event
+            allocated_time = strategy.time_budget_allocation.get(label_type, 0) * max_time_seconds
+
+            if self.verbose:
+                self.logger.info(f"\n📈 [{i + 1}/{len(strategy.priority_events)}] Researching: {label_type}")
+                self.logger.info(f"⏱️  Allocated time: {allocated_time / 60:.1f} minutes")
+
+            # Research the event
+            try:
+                event_start_time = datetime.now()
+                result = self.research_event_intelligently(label_type, strategy)
+                event_duration = (datetime.now() - event_start_time).total_seconds()
+
+                if result:
+                    research_results[label_type] = result
+                    total_insights.extend(result.get('insights', []))
+
+                    if self.verbose:
+                        self.logger.info(f"✅ Research completed in {event_duration:.1f}s")
+
+                        # Show key findings
+                        best_perf = result.get('best_performance', {})
+                        if best_perf:
+                            self.logger.info(f"   Return: {best_perf.get('total_return', 0):.4f}, "
+                                             f"Sharpe: {best_perf.get('sharpe_ratio', 0):.3f}, "
+                                             f"Win Rate: {best_perf.get('win_rate', 0):.3f}")
+                else:
+                    failed_events.append(label_type)
+                    if self.verbose:
+                        self.logger.info(f"❌ Research failed")
+
+            except Exception as e:
+                failed_events.append(label_type)
+                if self.verbose:
+                    self.logger.error(f"❌ Exception during research: {e}")
+                continue
+
+        # Generate comprehensive analysis
+        analysis = self._generate_comprehensive_analysis(research_results, failed_events, strategy)
+
+        total_duration = (datetime.now() - start_time).total_seconds()
+
+        # Final results package
+        final_results = {
+            'strategy': asdict(strategy),
+            'market_context': {
+                'regime': self.current_regime.value,
+                'research_timestamp': start_time.isoformat(),
+                'total_duration_seconds': total_duration
+            },
+            'research_results': research_results,
+            'failed_events': failed_events,
+            'analysis': analysis,
+            'insights': total_insights,
+            'knowledge_base_state': {
+                'total_successful_combinations': len(self.knowledge_base.memory.successful_combinations),
+                'total_failed_combinations': len(self.knowledge_base.memory.failed_combinations),
+                'regime_preferences_learned': len(self.knowledge_base.memory.regime_preferences),
+                'insights_generated': len(total_insights)
+            }
+        }
+
+        if self.verbose:
+            self._print_research_summary(final_results)
+
+        # Save results if directory provided
+        if self.results_dir:
+            self._save_intelligent_results(final_results)
+
+        return final_results
+
+    def _generate_comprehensive_analysis(self, research_results: Dict, failed_events: List[str],
+                                         strategy: ResearchStrategy) -> Dict[str, Any]:
+        """Generate comprehensive analysis of all research results"""
+
+        analysis = {
+            'summary': {
+                'total_events_attempted': len(strategy.priority_events),
+                'successful_research': len(research_results),
+                'failed_research': len(failed_events),
+                'success_rate': len(research_results) / len(strategy.priority_events) if strategy.priority_events else 0
+            },
+            'performance_ranking': [],
+            'best_strategies': {},
+            'feature_analysis': {
+                'most_common_features': {},
+                'regime_specific_features': {},
+                'feature_synergies': {}
+            },
+            'model_analysis': {
+                'model_preferences': {},
+                'performance_by_model': {},
+                'regime_model_preferences': {}
+            },
+            'economic_analysis': {
+                'total_potential_return': 0,
+                'best_risk_adjusted_strategy': None,
+                'diversification_opportunities': []
+            },
+            'actionable_recommendations': []
+        }
+
+        if not research_results:
+            return analysis
+
+        # Performance ranking
+        performance_scores = []
+        for label_type, result in research_results.items():
+            best_perf = result.get('best_performance', {})
+            economic_score = (
+                    best_perf.get('total_return', 0) * 0.4 +
+                    best_perf.get('auc_roc', 0.5) * 0.3 +
+                    best_perf.get('sharpe_ratio', 0) * 0.2 +
+                    best_perf.get('win_rate', 0.5) * 0.1
+            )
+
+            performance_scores.append({
+                'label_type': label_type,
+                'economic_score': economic_score,
+                'total_return': best_perf.get('total_return', 0),
+                'auc_roc': best_perf.get('auc_roc', 0.5),
+                'sharpe_ratio': best_perf.get('sharpe_ratio', 0),
+                'win_rate': best_perf.get('win_rate', 0.5),
+                'best_model': result.get('best_model', 'unknown'),
+                'num_features': len(result.get('selected_features', []))
+            })
+
+        analysis['performance_ranking'] = sorted(performance_scores, key=lambda x: x['economic_score'], reverse=True)
+
+        # Feature analysis
+        feature_counts = defaultdict(int)
+        for result in research_results.values():
+            for feature in result.get('selected_features', []):
+                feature_counts[feature] += 1
+
+        analysis['feature_analysis']['most_common_features'] = dict(
+            sorted(feature_counts.items(), key=lambda x: x[1], reverse=True)[:15]
+        )
+
+        # Model analysis
+        model_counts = defaultdict(int)
+        model_performance = defaultdict(list)
+
+        for result in research_results.values():
+            best_model = result.get('best_model', 'unknown')
+            model_counts[best_model] += 1
+
+            best_perf = result.get('best_performance', {})
+            if 'total_return' in best_perf:
+                model_performance[best_model].append(best_perf['total_return'])
+
+        analysis['model_analysis']['model_preferences'] = dict(model_counts)
+        analysis['model_analysis']['performance_by_model'] = {
+            model: {
+                'mean_return': np.mean(returns),
+                'std_return': np.std(returns),
+                'count': len(returns)
+            } for model, returns in model_performance.items() if len(returns) > 0
+        }
+
+        # Economic analysis
+        total_return = sum(perf['total_return'] for perf in performance_scores)
+        analysis['economic_analysis']['total_potential_return'] = total_return
+
+        # Best risk-adjusted strategy
+        if performance_scores:
+            best_risk_adjusted = max(performance_scores, key=lambda x: x['sharpe_ratio'])
+            analysis['economic_analysis']['best_risk_adjusted_strategy'] = best_risk_adjusted
+
+        # Generate actionable recommendations
+        recommendations = self._generate_actionable_recommendations(analysis, research_results)
+        analysis['actionable_recommendations'] = recommendations
+
+        return analysis
+
+    def _generate_actionable_recommendations(self, analysis: Dict, research_results: Dict) -> List[str]:
+        """Generate actionable recommendations based on research results"""
+        recommendations = []
+
+        # Top performing strategies
+        top_performers = analysis['performance_ranking'][:3]
+        if top_performers:
+            recommendations.append(
+                f"Focus on top 3 strategies: {', '.join([p['label_type'] for p in top_performers])}. "
+                f"Combined potential return: {sum([p['total_return'] for p in top_performers]):.4f}"
+            )
+
+        # Model recommendations
+        model_prefs = analysis['model_analysis']['model_preferences']
+        if model_prefs:
+            top_model = max(model_prefs.items(), key=lambda x: x[1])
+            recommendations.append(
+                f"Primary model recommendation: {top_model[0]} (used in {top_model[1]} successful strategies)"
+            )
+
+        # Feature recommendations
+        common_features = analysis['feature_analysis']['most_common_features']
+        if common_features:
+            top_features = list(common_features.keys())[:5]
+            recommendations.append(
+                f"Focus on key features: {', '.join(top_features)}. "
+                f"These appear in multiple successful strategies."
+            )
+
+        # Risk management
+        performance_scores = analysis['performance_ranking']
+        high_return_low_sharpe = [p for p in performance_scores if p['total_return'] > 0.05 and p['sharpe_ratio'] < 0.5]
+        if high_return_low_sharpe:
+            recommendations.append(
+                f"High return but risky strategies detected: {', '.join([p['label_type'] for p in high_return_low_sharpe])}. "
+                f"Consider position sizing or stop losses."
+            )
+
+        # Diversification
+        event_types = set(result.get('event_type', 'unknown') for result in research_results.values())
+        if len(event_types) > 1:
+            recommendations.append(
+                f"Good diversification across {len(event_types)} event types: {', '.join(event_types)}. "
+                f"Consider portfolio allocation across different event types."
+            )
+
+        # Market regime specific
+        if self.current_regime == MarketRegime.CRISIS:
+            recommendations.append(
+                "Current crisis regime detected. Focus on defensive strategies and robust models. "
+                "Consider increased position sizing constraints and more frequent rebalancing."
+            )
+        elif self.current_regime == MarketRegime.BULL_TRENDING:
+            recommendations.append(
+                "Bull market detected. Momentum strategies may outperform. "
+                "Consider trend-following approaches and growth-oriented events."
+            )
+
+        return recommendations
+
+    def _print_research_summary(self, results: Dict[str, Any]):
+        """Print comprehensive research summary"""
+        print(f"\n{'=' * 80}")
+        print("🎯 COMPREHENSIVE INTELLIGENT RESEARCH SUMMARY")
+        print(f"{'=' * 80}")
+
+        # Basic stats
+        summary = results['analysis']['summary']
+        print(f"📊 Research Statistics:")
+        print(f"   • Events attempted: {summary['total_events_attempted']}")
+        print(f"   • Successful research: {summary['successful_research']}")
+        print(f"   • Success rate: {summary['success_rate']:.1%}")
+        print(f"   • Duration: {results['market_context']['total_duration_seconds'] / 60:.1f} minutes")
+
+        # Top performers
+        top_performers = results['analysis']['performance_ranking'][:5]
+        if top_performers:
+            print(f"\n🏆 Top 5 Performing Strategies:")
+            for i, perf in enumerate(top_performers, 1):
+                print(f"   {i}. {perf['label_type']}")
+                print(f"      Return: {perf['total_return']:.4f} | Sharpe: {perf['sharpe_ratio']:.3f} | "
+                      f"AUC: {perf['auc_roc']:.3f} | Model: {perf['best_model']}")
+
+        # Model preferences
+        model_prefs = results['analysis']['model_analysis']['model_preferences']
+        if model_prefs:
+            print(f"\n🤖 Model Preferences:")
+            for model, count in sorted(model_prefs.items(), key=lambda x: x[1], reverse=True):
+                print(f"   • {model}: {count} strategies")
+
+        # Common features
+        common_features = results['analysis']['feature_analysis']['most_common_features']
+        if common_features:
+            print(f"\n🎯 Most Important Features:")
+            for i, (feature, count) in enumerate(list(common_features.items())[:10], 1):
+                print(f"   {i:2d}. {feature}: used in {count} strategies")
+
+        # Economic summary
+        economic = results['analysis']['economic_analysis']
+        print(f"\n💰 Economic Summary:")
+        print(f"   • Total potential return: {economic['total_potential_return']:.4f}")
+
+        best_risk_adj = economic.get('best_risk_adjusted_strategy')
+        if best_risk_adj:
+            print(f"   • Best risk-adjusted: {best_risk_adj['label_type']} "
+                  f"(Sharpe: {best_risk_adj['sharpe_ratio']:.3f})")
+
+        # Recommendations
+        recommendations = results['analysis']['actionable_recommendations']
+        if recommendations:
+            print(f"\n💡 Key Recommendations:")
+            for i, rec in enumerate(recommendations, 1):
+                print(f"   {i}. {rec}")
+
+        # Knowledge base growth
+        kb_state = results['knowledge_base_state']
+        print(f"\n🧠 Knowledge Base Growth:")
+        print(f"   • Successful combinations learned: {kb_state['total_successful_combinations']}")
+        print(f"   • Failed combinations avoided: {kb_state['total_failed_combinations']}")
+        print(f"   • Insights generated: {kb_state['insights_generated']}")
+
+    def _save_intelligent_results(self, results: Dict[str, Any]):
+        """Save intelligent research results"""
+        if not self.results_dir:
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        try:
+            # Save main results
+            results_file = self.results_dir / f"agentic_research_results_{timestamp}.json"
+            with open(results_file, 'w') as f:
+                json.dump(results, f, indent=2, default=str)
+
+            # Save knowledge base
+            kb_file = self.results_dir / f"knowledge_base_{timestamp}.pkl"
+            with open(kb_file, 'wb') as f:
+                pickle.dump(self.knowledge_base, f)
+
+            # Save summary report
+            report_file = self.results_dir / f"research_report_{timestamp}.txt"
+            with open(report_file, 'w') as f:
+                f.write(self._generate_text_report(results))
+
+            if self.verbose:
+                self.logger.info(f"💾 Results saved to {self.results_dir}")
+
+        except Exception as e:
+            if self.verbose:
+                self.logger.warning(f"Failed to save results: {e}")
+
+    def _generate_text_report(self, results: Dict[str, Any]) -> str:
+        """Generate detailed text report"""
+        report = f"""
+AGENTIC FINANCIAL FEATURE RESEARCH REPORT
+{'=' * 80}
+
+Research Timestamp: {results['market_context']['research_timestamp']}
+Market Regime: {results['market_context']['regime']}
+Total Duration: {results['market_context']['total_duration_seconds'] / 60:.1f} minutes
+
+EXECUTIVE SUMMARY
+{'=' * 50}
+• Events Researched: {results['analysis']['summary']['successful_research']}/{results['analysis']['summary']['total_events_attempted']}
+• Success Rate: {results['analysis']['summary']['success_rate']:.1%}
+• Total Potential Return: {results['analysis']['economic_analysis']['total_potential_return']:.4f}
+
+TOP PERFORMING STRATEGIES
+{'=' * 50}
+"""
+
+        for i, perf in enumerate(results['analysis']['performance_ranking'][:10], 1):
+            report += f"""
+{i:2d}. {perf['label_type']}
+    Model: {perf['best_model']}
+    Total Return: {perf['total_return']:.4f}
+    Sharpe Ratio: {perf['sharpe_ratio']:.3f}
+    AUC-ROC: {perf['auc_roc']:.3f}
+    Win Rate: {perf['win_rate']:.3f}
+    Features: {perf['num_features']}
+"""
+
+        report += f"""
+MODEL ANALYSIS
+{'=' * 50}
+Model Usage Frequency:
+"""
+
+        model_prefs = results['analysis']['model_analysis']['model_preferences']
+        for model, count in sorted(model_prefs.items(), key=lambda x: x[1], reverse=True):
+            report += f"• {model}: {count} strategies\n"
+
+        report += f"""
+FEATURE ANALYSIS
+{'=' * 50}
+Most Important Features:
+"""
+
+        common_features = results['analysis']['feature_analysis']['most_common_features']
+        for i, (feature, count) in enumerate(list(common_features.items())[:15], 1):
+            report += f"{i:2d}. {feature} (used in {count} strategies)\n"
+
+        report += f"""
+ACTIONABLE RECOMMENDATIONS
+{'=' * 50}
+"""
+
+        for i, rec in enumerate(results['analysis']['actionable_recommendations'], 1):
+            report += f"{i}. {rec}\n\n"
+
+        report += f"""
+DETAILED STRATEGY RESULTS
+{'=' * 50}
+"""
+
+        for label_type, result in results['research_results'].items():
+            report += f"""
+Strategy: {label_type}
+Event Type: {result.get('event_type', 'Unknown')}
+Best Model: {result.get('best_model', 'Unknown')}
+Selection Method: {result.get('selection_method', 'Unknown')}
+Features Selected: {len(result.get('selected_features', []))}
+Key Features: {', '.join(result.get('selected_features', [])[:5])}
+
+Performance Metrics:
+"""
+            best_perf = result.get('best_performance', {})
+            for metric, value in best_perf.items():
+                if isinstance(value, (int, float)):
+                    report += f"  {metric}: {value:.4f}\n"
+
+            # Add insights
+            insights = result.get('insights', [])
+            if insights:
+                report += "Agent Insights:\n"
+                for insight in insights:
+                    report += f"  • {insight.get('description', 'No description')}\n"
+
+            report += "\n" + "-" * 60 + "\n"
+
+        return report
+
+
+# CONVENIENCE FUNCTIONS FOR AGENTIC RESEARCH
+
+def quick_agentic_research(labeled_data: Union[pd.DataFrame, str, Path],
+                           max_time_minutes: int = 30,
+                           results_dir: Optional[str] = None,
+                           verbose: bool = True) -> Dict[str, Any]:
+    """
+    Quick agentic research focusing on most promising opportunities
+
+    Args:
+        labeled_data: DataFrame or path to labeled data
+        max_time_minutes: Time budget for research
+        results_dir: Directory for results (optional)
+        verbose: Print progress information
+
+    Returns:
+        Comprehensive research results with agent insights
+    """
+    agent = AgenticFeatureResearchAgent(
+        labeled_data=labeled_data,
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+    return agent.comprehensive_intelligent_research(max_time_minutes=max_time_minutes)
+
+
+def deep_agentic_research(labeled_data: Union[pd.DataFrame, str, Path],
+                          max_time_minutes: int = 120,
+                          results_dir: Optional[str] = None,
+                          verbose: bool = True) -> Dict[str, Any]:
+    """
+    Deep agentic research with extended time budget
+
+    Args:
+        labeled_data: DataFrame or path to labeled data
+        max_time_minutes: Extended time budget for comprehensive research
+        results_dir: Directory for results (optional)
+        verbose: Print progress information
+
+    Returns:
+        Comprehensive research results with detailed agent insights
+    """
+    agent = AgenticFeatureResearchAgent(
+        labeled_data=labeled_data,
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+    results = agent.comprehensive_intelligent_research(max_time_minutes=max_time_minutes)
+
+    # Generate additional analysis for deep research
+    if verbose:
+        print("\n🔬 DEEP RESEARCH ADDITIONAL ANALYSIS")
+        print("=" * 60)
+
+        # Knowledge base insights
+        kb = agent.knowledge_base
+        if len(kb.insights) > 0:
+            print(f"📚 Agent Generated {len(kb.insights)} Insights:")
+            for i, insight in enumerate(list(kb.insights)[-10:], 1):  # Show last 10 insights
+                print(f"   {i}. [{insight.insight_type}] {insight.description}")
+
+        # Feature synergies
+        if kb.feature_synergies:
+            print(f"\n🔗 Discovered Feature Synergies:")
+            synergies = sorted(kb.feature_synergies.items(),
+                               key=lambda x: np.mean(x[1]), reverse=True)[:5]
+            for pair, performances in synergies:
+                avg_perf = np.mean(performances)
+                print(f"   {pair[0]} + {pair[1]}: {avg_perf:.3f} avg performance")
+
+    return results
+
+
+def adaptive_strategy_research(labeled_data: Union[pd.DataFrame, str, Path],
+                               focus_events: List[str] = None,
+                               economic_threshold: float = 0.02,
+                               results_dir: Optional[str] = None,
+                               verbose: bool = True) -> Dict[str, Any]:
+    """
+    Adaptive strategy research focusing on specific events or economic thresholds
+
+    Args:
+        labeled_data: DataFrame or path to labeled data
+        focus_events: Specific events to focus on (None = agent decides)
+        economic_threshold: Minimum economic performance threshold
+        results_dir: Directory for results (optional)
+        verbose: Print progress information
+
+    Returns:
+        Research results filtered by economic performance
+    """
+    agent = AgenticFeatureResearchAgent(
+        labeled_data=labeled_data,
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+    # Override strategy if focus events specified
+    if focus_events:
+        original_method = agent._create_research_strategy
+
+        def focused_strategy():
+            strategy = original_method()
+            strategy.priority_events = focus_events
+            return strategy
+
+        agent._create_research_strategy = focused_strategy
+
+    results = agent.comprehensive_intelligent_research(max_time_minutes=60)
+
+    # Filter results by economic threshold
+    filtered_results = {}
+    for label_type, result in results['research_results'].items():
+        best_perf = result.get('best_performance', {})
+        total_return = best_perf.get('total_return', 0)
+
+        if total_return >= economic_threshold:
+            filtered_results[label_type] = result
+
+    results['research_results'] = filtered_results
+    results['filtering'] = {
+        'economic_threshold': economic_threshold,
+        'original_count': len(results['research_results']),
+        'filtered_count': len(filtered_results)
+    }
+
+    if verbose:
+        print(f"\n💰 ECONOMIC FILTERING APPLIED")
+        print(f"Threshold: {economic_threshold:.3f}")
+        print(f"Strategies meeting threshold: {len(filtered_results)}")
+
+    return results
+
+
+# Example usage
+if __name__ == "__main__":
+    # Example of how to use the agentic system
+    print("Agentic Financial Feature Research System")
+    print("=" * 50)
+
+    # Quick research example
+    # results = quick_agentic_research(
+    #     labeled_data="your_financial_data.pkl",
+    #     max_time_minutes=30,
+    #     results_dir="agentic_results",
+    #     verbose=True
+    # )
+
+    # Deep research example
+    # results = deep_agentic_research(
+    #     labeled_data="your_financial_data.pkl",
+    #     max_time_minutes=120,
+    #     results_dir="agentic_results",
+    #     verbose=True
+    # )
+
+    # Adaptive research example
+    # results = adaptive_strategy_research(
+    #     labeled_data="your_financial_data.pkl",
+    #     focus_events=["breakout_label", "momentum_label"],
+    #     economic_threshold=0.05,
+    #     results_dir="agentic_results",
+    #     verbose=True
+    # )
+
+"""1. Intelligent Context Awareness
+
+Market Regime Detection: Automatically detects bull/bear/sideways/crisis markets and adapts strategies accordingly
+Event Type Classification: Intelligently classifies events as breakouts, mean reversion, momentum, etc.
+Data Quality Assessment: Evaluates data quality and adjusts preprocessing strategies
+
+2. Adaptive Learning & Memory
+
+Knowledge Base: Remembers successful/failed feature combinations across research sessions
+Feature Synergy Discovery: Learns which features work well together
+Model Performance Tracking: Builds historical performance profiles for different models
+Regime-Specific Preferences: Learns which features work best in different market conditions
+
+3. Intelligent Decision Making
+
+Context-Aware Feature Selection: Chooses selection methods based on event type and market regime
+Smart Model Selection: Recommends models based on historical success and current context
+Economic-Focused Evaluation: Prioritizes real trading performance over statistical metrics
+Time Budget Management: Allocates research time intelligently based on event promise
+
+4. Agent Reasoning & Insights
+
+Event Analysis: Reasons about each event type's characteristics and optimal approaches
+Insight Generation: Creates actionable insights with confidence levels
+Strategy Recommendations: Provides specific, actionable trading recommendations
+Risk Assessment: Identifies potential risks and suggests mitigation strategies
+
+🎯 Three Usage Modes
+Quick Research (30 minutes)
+pythonresults = quick_agentic_research(
+    labeled_data="your_data.pkl",
+    max_time_minutes=30,
+    verbose=True
+)
+Deep Research (2+ hours)
+pythonresults = deep_agentic_research(
+    labeled_data="your_data.pkl", 
+    max_time_minutes=120,
+    verbose=True
+)
+Adaptive Strategy Research
+pythonresults = adaptive_strategy_research(
+    labeled_data="your_data.pkl",
+    focus_events=["breakout_label"],
+    economic_threshold=0.05,  # 5% minimum return
+    verbose=True
+)
+🧠 Agent Intelligence Features
+
+Learns from Experience: Builds up knowledge about what works and what doesn't
+Adapts to Market Conditions: Different strategies for different market regimes
+Economic Focus: Prioritizes actual trading profitability over statistical performance
+Time-Aware: Manages research time budget intelligently
+Insight Generation: Provides actionable recommendations with confidence levels
+Risk-Aware: Identifies high-return but risky strategies and suggests"""
