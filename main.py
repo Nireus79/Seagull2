@@ -1,4 +1,4 @@
-from feature_research import (
+from research import (
     quick_feature_research,
     comprehensive_feature_research,
     OptimizedBinaryClassificationFeatureResearch
@@ -151,7 +151,7 @@ def main_example(your_df):
 
     print("Checking DataFrame format...")
     label_cols, feature_cols = check_dataframe_format(your_df)
-
+    print(label_cols)
     if not label_cols:
         print("Cannot proceed - no label columns found!")
         return None
@@ -161,11 +161,11 @@ def main_example(your_df):
     # Option 1: Quick research on first label
     results = quick_feature_research(
         labeled_data=your_df,
-        label_type=label_cols[0],  # Use first available label
+        label_type=label_cols[2],  # Use first available label
         verbose=True
     )
 
-    print(f"\nResults for {label_cols[0]}:")
+    print(f"\nResults for {label_cols[2]}:")
     print(f"Best features: {results.best_features}")
     print(f"Optimal model: {results.optimal_model}")
     print(f"AUC-ROC: {results.economic_metrics.get('auc_roc', 0):.3f}")
@@ -173,140 +173,4 @@ def main_example(your_df):
     return results
 
 
-# main_example(labeled_data)
-# OPTIMIZED BINARY CLASSIFICATION FEATURE RESEARCH REPORT
-# ======================================================================
-#
-# Label Type: CUSUM_event_label
-# Research Date: 2025-09-07T20:05:53.827563
-# Optimal Model: random_forest
-#
-# FEATURE SELECTION RESULTS =================================== Selected Features (15): EMA_medium_distance_pct,
-# EMA_slow_distance_atr, momentum_short, momentum_medium, vol_breakout_score, EMA_fast_distance_pct,
-# EMA_slow_distance_pct, 1D_EMA_short, 4H_volatility, volume_zscore, 4H_EMA_short, MACD_signal, momentum_ratio_4H,
-# BB_position, momentum_regime_score
-#
-# Top 10 Features by Importance Score:
-#  1. momentum_long                  1.0000
-#  2. price_vs_1D_pct                0.9440
-#  3. momentum_medium                0.7682
-#  4. BB_position                    0.7248
-#  5. 4H_EMA_short                   0.6943
-#  6. price_vs_4H_pct                0.6774
-#  7. EMA_slow_distance_pct          0.6369
-#  8. vol_breakout_score             0.6334
-#  9. 1D_momentum_medium             0.6153
-# 10. EMA_medium_distance_pct        0.6086
-#
-# MODEL PERFORMANCE COMPARISON
-# ===================================
-#  1. random_forest        Score: 0.4242 (AUC: 0.502, F1: 0.293, Prec: 0.427)
-#  2. decision_tree        Score: 0.4187 (AUC: 0.499, F1: 0.326, Prec: 0.357)
-#  3. knn                  Score: 0.4157 (AUC: 0.491, F1: 0.329, Prec: 0.356)
-#  4. extra_trees          Score: 0.4129 (AUC: 0.503, F1: 0.246, Prec: 0.439)
-#  5. gradient_boosting    Score: 0.4016 (AUC: 0.494, F1: 0.288, Prec: 0.342)
-#  6. naive_bayes          Score: 0.3959 (AUC: 0.516, F1: 0.196, Prec: 0.396)
-#  7. lda                  Score: 0.3510 (AUC: 0.526, F1: 0.071, Prec: 0.333)
-#  8. logistic_regression  Score: 0.3430 (AUC: 0.524, F1: 0.056, Prec: 0.323)
-#  9. ridge_classifier     Score: 0.3096 (AUC: 0.524, F1: 0.060, Prec: 0.147)
-#
-# ECONOMIC PERFORMANCE METRICS
-# ===================================
-# Accuracy: 0.5000
-# Precision: 0.5000
-# Recall: 0.5000
-# F1-Score: 0.5000
-# AUC-ROC: 0.0000
-#
-# Trading Performance:
-# Total Return: 0.0000
-# Win Rate: 0.0000
-# Sharpe Ratio: 0.0000
-# Max Drawdown: 0.0000
-# Number of Trades: 0
-#
-# FEATURE STABILITY ANALYSIS
-# ===================================
-#  1. momentum_short                 1.0000
-#  2. volume_zscore                  1.0000
-#  3. BB_position                    1.0000
-#  4. EMA_fast_distance_pct          0.5693
-#  5. 4H_volatility                  0.4189
-#  6. 4H_EMA_short                   0.3369
-#  7. momentum_ratio_4H              -0.0000
-#  8. momentum_medium                -0.0159
-#  9. 1D_EMA_short                   -0.1492
-# 10. EMA_slow_distance_atr          -0.2287
-#
-#
-# Results for CUSUM_event_label: Best features: ['EMA_medium_distance_pct', 'EMA_slow_distance_atr',
-# 'momentum_short', 'momentum_medium', 'vol_breakout_score', 'EMA_fast_distance_pct', 'EMA_slow_distance_pct',
-# '1D_EMA_short', '4H_volatility', 'volume_zscore', '4H_EMA_short', 'MACD_signal', 'momentum_ratio_4H',
-# 'BB_position', 'momentum_regime_score'] Optimal model: random_forest AUC-ROC: 0.000
-
-
-research_with_class(labeled_data)
-# OPTIMIZED BINARY CLASSIFICATION FEATURE RESEARCH REPORT
-# ======================================================================
-#
-# Label Type: CUSUM_event_label
-# Research Date: 2025-09-08T00:09:55.603309
-# Optimal Model: decision_tree
-#
-# FEATURE SELECTION RESULTS =================================== Selected Features (20): ATR, returns, MACD_signal,
-# 4H_EMA_short, 4H_momentum_short, momentum_long, Volume, momentum_ratio_4H, momentum_medium, 1D_momentum_medium,
-# price_vs_4H_pct, momentum_short, SMA_medium_50, MACD_histogram, EMA_medium_26, BB_width_pct, RSI,
-# EMA_medium_distance_pct, 1D_RSI, EMA_slow_distance_pct
-#
-# Top 10 Features by Importance Score:
-#  1. momentum_long                  1.0000
-#  2. price_vs_1D_pct                0.9440
-#  3. momentum_medium                0.7682
-#  4. BB_position                    0.7248
-#  5. 4H_EMA_short                   0.6943
-#  6. price_vs_4H_pct                0.6774
-#  7. EMA_slow_distance_pct          0.6369
-#  8. vol_breakout_score             0.6334
-#  9. 1D_momentum_medium             0.6153
-# 10. EMA_medium_distance_pct        0.6086
-#
-# MODEL PERFORMANCE COMPARISON
-# ===================================
-#  1. decision_tree        Score: 0.4423 (AUC: 0.516, F1: 0.350, Prec: 0.397)
-#  2. gradient_boosting    Score: 0.4301 (AUC: 0.540, F1: 0.284, Prec: 0.375)
-#  3. random_forest        Score: 0.4149 (AUC: 0.529, F1: 0.257, Prec: 0.367)
-#  4. knn                  Score: 0.4100 (AUC: 0.475, F1: 0.339, Prec: 0.355)
-#  5. naive_bayes          Score: 0.4037 (AUC: 0.526, F1: 0.199, Prec: 0.404)
-#  6. lda                  Score: 0.3996 (AUC: 0.515, F1: 0.129, Prec: 0.516)
-#  7. extra_trees          Score: 0.3939 (AUC: 0.511, F1: 0.193, Prec: 0.402)
-#  8. ridge_classifier     Score: 0.3814 (AUC: 0.511, F1: 0.129, Prec: 0.436)
-#  9. logistic_regression  Score: 0.3673 (AUC: 0.508, F1: 0.126, Prec: 0.379)
-#
-# ECONOMIC PERFORMANCE METRICS
-# ===================================
-# Accuracy: 0.5000
-# Precision: 0.5000
-# Recall: 0.5000
-# F1-Score: 0.5000
-# AUC-ROC: 0.0000
-#
-# Trading Performance:
-# Total Return: 0.0000
-# Win Rate: 0.0000
-# Sharpe Ratio: 0.0000
-# Max Drawdown: 0.0000
-# Number of Trades: 0
-#
-# FEATURE STABILITY ANALYSIS
-# ===================================
-#  1. returns                        1.0000
-#  2. Volume                         1.0000
-#  3. price_vs_4H_pct                1.0000
-#  4. momentum_short                 1.0000
-#  5. SMA_medium_50                  1.0000
-#  6. 4H_EMA_short                   0.3369
-#  7. EMA_medium_26                  0.1845
-#  8. 1D_momentum_medium             0.0684
-#  9. momentum_ratio_4H              -0.0000
-# 10. BB_width_pct                   -0.0009
-
+main_example(labeled_data)

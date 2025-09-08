@@ -4,10 +4,11 @@ from typing import Dict, List, Tuple, Optional, Union
 import warnings
 import ta
 from itertools import combinations
+# from data_resampling import resampled
 
 warnings.filterwarnings('ignore')
 
-
+resampled = pd.read_csv('resampled5mEE.csv')[:10000]
 # pd.set_option('display.max_columns', None)
 
 
@@ -1189,7 +1190,7 @@ def create_enhanced_dataset(resampled_data: pd.DataFrame,
 
 
 # Example usage with Elder's methodology and co-events
-def example_usage(resampled_data):
+def example_usage():
     """
     Example of how to use with Elder's approach and co-event detection
     """
@@ -1257,3 +1258,8 @@ def example_usage(resampled_data):
     print("Enhanced Technical Indicators System with Elder's Methodology & Co-Events")
     print("=========================================================================")
     print("✓")
+    return elder_config
+
+
+conf = example_usage()
+indicated, summ = create_enhanced_dataset(resampled, conf)
