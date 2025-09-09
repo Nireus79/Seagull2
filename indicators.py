@@ -1257,7 +1257,6 @@ def example_usage():
 
     print("Enhanced Technical Indicators System with Elder's Methodology & Co-Events")
     print("=========================================================================")
-    print("✓")
     return elder_config
 
 

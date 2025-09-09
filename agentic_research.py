@@ -1994,12 +1994,12 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # Quick research example
-    # results = quick_agentic_research(
-    #     labeled_data="your_financial_data.pkl",
-    #     max_time_minutes=30,
-    #     results_dir="agentic_results",
-    #     verbose=True
-    # )
+    results = quick_agentic_research(
+        labeled_data='labeled5mEE.pkl',
+        max_time_minutes=30,
+        results_dir="agentic_results",
+        verbose=True
+    )
 
     # Deep research example
     # results = deep_agentic_research(
@@ -2046,13 +2046,13 @@ Strategy Recommendations: Provides specific, actionable trading recommendations
 Risk Assessment: Identifies potential risks and suggests mitigation strategies
 
 🎯 Three Usage Modes
-Quick Research (30 minutes)
+Quick Research 
 pythonresults = quick_agentic_research(
     labeled_data="your_data.pkl",
     max_time_minutes=30,
     verbose=True
 )
-Deep Research (2+ hours)
+Deep Research 
 pythonresults = deep_agentic_research(
     labeled_data="your_data.pkl", 
     max_time_minutes=120,

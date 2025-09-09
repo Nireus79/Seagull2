@@ -6,6 +6,7 @@ from tqdm import tqdm
 import multiprocessing as mp
 from functools import partial
 from indicators import indicated
+import pickle
 
 warnings.filterwarnings('ignore')
 
@@ -862,10 +863,7 @@ def quick_label_momentum(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
 
 def quick_label_all_events(data: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
     """Quick labeling for all events"""
-    return label_multiple_events_theory_based(
-        data,
-        event_columns=None  # Uses any_event
-    )
+    return label_multiple_events_theory_based(data)
 
 
 # Detect all event types dynamically
@@ -880,8 +878,12 @@ labeled_data, summary = label_multiple_events_theory_based(
     mode="individual",  # one label column per event type -> "<event>_label"
     use_parallel=False  # optional
 )
-# print(labeled_data)
+print(labeled_data)
+for i in labeled_data.columns:
+    print(i)
 print(summary)
+
+pickle.dump(labeled_data, open('labeled5mEE.pkl', 'wb'))
 
 # 1. Theory-Based Barriers:
 #
