@@ -370,14 +370,11 @@ class FlexiblePointInTimeResampler:
 
 
 # Usage with your actual ETH data
-def process_data(raw_data, frequency, frames):
+def process_data(raw, frequency):
     """
     Process your actual ETH 5-minute data with flexible configurations
     """
     try:
-        # Load your ETH data
-        raw = raw_data
-
         # Clean up the data
         raw['t'] = raw.time
         raw.time = pd.to_datetime(raw.time, unit='ms')
@@ -407,7 +404,7 @@ def process_data(raw_data, frequency, frames):
         print(f"\nEnhanced dataset: {enhanced_data.shape}")
         print(f"Sample data (last 3 rows):")
         print(enhanced_data[['Close', '30min_Close', '4H_Close', '1D_Close']].tail(3))
-
+        enhanced_data.to_csv('resampled5mEE.csv', index=False)
         return resampler, enhanced_data
 
     except FileNotFoundError:
@@ -419,12 +416,12 @@ def process_data(raw_data, frequency, frames):
         return None, None
 
 
-raw_data = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')[:10000]
+raw_data = pd.read_csv('D:/Seagull_data/historical_data/time/ETHEUR/ETHEUR_5m.csv')
 freq = '5min'
 time_frames = ['30min', '4H', '1D']
 # Run with your ETH data
-resampled, enhanced_data = process_data(raw_data, freq, time_frames)
-# print(resampler)
+resampled, enhanced_data = process_data(raw_data, freq)
+# print(resampled)
 # print(enhanced_data)
 # enhanced_data.to_csv('resampled5mEE.csv', index=False)
 
