@@ -934,6 +934,16 @@ class CausalResearchAgent:
         # Analyze data
         self._analyze_data_structure()
 
+        self.data = self._clean_data_for_causality()
+
+        # Data statistics
+        self._data_stats()
+
+        if self.verbose:
+            self.logger.info(f"Data cleaned for causality: {self.data.shape}")
+            remaining_nan = self.data.isna().sum().sum()
+            self.logger.info(f"Remaining NaN values: {remaining_nan}")
+
         if self.verbose:
             self.logger.info("Causal Financial Research Agent initialized")
             self.logger.info(f"Detected {len(self.label_columns)} event types")
@@ -970,6 +980,20 @@ class CausalResearchAgent:
 
         return logger
 
+    def _clean_data_for_causality(self):
+        # 1. Focus on complete cases for key features
+        key_features = ['Volume', 'Close', 'High', 'Low', 'returns']  # Start with basics
+
+        # 2. Forward fill then drop remaining NaNs
+        data_clean = self.data.copy()
+        data_clean = data_clean.fillna(method='ffill').fillna(method='bfill')
+
+        # 3. Drop any remaining rows with NaN in critical features
+        critical_cols = key_features + [col for col in self.data.columns if col.endswith('_label')]
+        data_clean = data_clean.dropna(subset=critical_cols)
+
+        return data_clean
+
     def _analyze_data_structure(self):
         """Analyze data structure to identify features and labels"""
 
@@ -1000,6 +1024,31 @@ class CausalResearchAgent:
             if candidate in self.data.columns:
                 self.price_column = candidate
                 break
+
+    def _data_stats(self):
+        print("Label distributions:")
+        for col in self.data.columns:
+            if col.endswith('_label'):
+                print(f"{col}: {self.data[col].value_counts()}")
+
+        print("\nFeature statistics:")
+        feature_cols = [col for col in self.data.columns if
+                        not any(pattern in col for pattern in ['_label', '_return', '_event'])]
+        print(f"Features: {len(feature_cols)}")
+        print(f"Features with NaN: {self.data[feature_cols].isna().sum().sum()}")
+        # print(f"Constant features: {(data[feature_cols].std() == 0).sum()}")
+
+        print("Critical data diagnostics:")
+        print(f"1. Data shape: {self.data.shape}")
+        print(f"2. Date range: {self.data.index.min()} to {self.data.index.max()}")
+        print(f"3. Label event rates:")
+        for col in [c for c in self.data.columns if c.endswith('_label')]:
+            rate = self.data[col].mean()
+            print(f"   {col}: {rate:.3%}")
+        print(f"4. Feature completeness:")
+        features = [c for c in self.data.columns if not any(p in c for p in ['_label', '_return', '_event'])]
+        completeness = (1 - self.data[features].isna().mean()).mean()
+        print(f"   Average feature completeness: {completeness:.1%}")
 
     def research_event_causally(self, event_label: str) -> Dict[str, Any]:
         """Research a single event using causal inference"""
@@ -1956,37 +2005,8 @@ def validate_causal_stability(labeled_data: Union[pd.DataFrame, str, Path],
     return final_results
 
 
-def data_str(data):
-    print("Label distributions:")
-    for col in data.columns:
-        if col.endswith('_label'):
-            print(f"{col}: {data[col].value_counts()}")
-
-    print("\nFeature statistics:")
-    feature_cols = [col for col in data.columns if
-                    not any(pattern in col for pattern in ['_label', '_return', '_event'])]
-    print(f"Features: {len(feature_cols)}")
-    print(f"Features with NaN: {data[feature_cols].isna().sum().sum()}")
-    # print(f"Constant features: {(data[feature_cols].std() == 0).sum()}")
-
-    print("Critical data diagnostics:")
-    print(f"1. Data shape: {data.shape}")
-    print(f"2. Date range: {data.index.min()} to {data.index.max()}")
-    print(f"3. Label event rates:")
-    for col in [c for c in data.columns if c.endswith('_label')]:
-        rate = data[col].mean()
-        print(f"   {col}: {rate:.3%}")
-    print(f"4. Feature completeness:")
-    features = [c for c in data.columns if not any(p in c for p in ['_label', '_return', '_event'])]
-    completeness = (1 - data[features].isna().mean()).mean()
-    print(f"   Average feature completeness: {completeness:.1%}")
-
-
 # Example usage
 if __name__ == "__main__":
-    with open('labeled5mEE.pkl', 'rb') as file:
-        data = pickle.load(file)
-        data_str(data)
     print("Causal Financial Research System")
     print("=" * 50)
 
