@@ -21,7 +21,6 @@ from enum import Enum
 from abc import ABC, abstractmethod
 
 # Statistical and Causal Analysis
-from scipy.stats import granger_cause
 from statsmodels.tsa.stattools import grangercausalitytests
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 from statsmodels.stats.diagnostic import het_white, het_breuschpagan
@@ -700,7 +699,7 @@ class CausalFeatureDiscovery:
                 is_causal = (
                                     granger_result.get('is_causal', False) or
                                     structural_result.get('is_causal', False)
-                            ) and is_plausible and temporal_result.get('temporal_ordering', False)
+                            ) and is_plausible  # and temporal_result.get('temporal_ordering', False) # TODO
 
                 if not is_causal:
                     continue
@@ -905,7 +904,6 @@ class CausalResearchAgent:
                  results_dir: Optional[str] = None,
                  random_state: int = 42,
                  verbose: bool = True):
-
         # Load data
         if isinstance(labeled_data, (str, Path)):
             self.data = self._load_data_from_path(labeled_data)
@@ -1890,7 +1888,7 @@ def validate_causal_stability(labeled_data: Union[pd.DataFrame, str, Path],
                 original_strength = relationship.strength
 
                 strength_decline = (
-                                               original_strength - current_strength) / original_strength if original_strength > 0 else 0
+                                           original_strength - current_strength) / original_strength if original_strength > 0 else 0
 
                 if is_still_causal and strength_decline < 0.5:  # Allow up to 50% decline
                     event_validation['validated_relationships'].append({
@@ -1958,16 +1956,52 @@ def validate_causal_stability(labeled_data: Union[pd.DataFrame, str, Path],
     return final_results
 
 
+def data_str(data):
+    print("Label distributions:")
+    for col in data.columns:
+        if col.endswith('_label'):
+            print(f"{col}: {data[col].value_counts()}")
+
+    print("\nFeature statistics:")
+    feature_cols = [col for col in data.columns if
+                    not any(pattern in col for pattern in ['_label', '_return', '_event'])]
+    print(f"Features: {len(feature_cols)}")
+    print(f"Features with NaN: {data[feature_cols].isna().sum().sum()}")
+    # print(f"Constant features: {(data[feature_cols].std() == 0).sum()}")
+
+    print("Critical data diagnostics:")
+    print(f"1. Data shape: {data.shape}")
+    print(f"2. Date range: {data.index.min()} to {data.index.max()}")
+    print(f"3. Label event rates:")
+    for col in [c for c in data.columns if c.endswith('_label')]:
+        rate = data[col].mean()
+        print(f"   {col}: {rate:.3%}")
+    print(f"4. Feature completeness:")
+    features = [c for c in data.columns if not any(p in c for p in ['_label', '_return', '_event'])]
+    completeness = (1 - data[features].isna().mean()).mean()
+    print(f"   Average feature completeness: {completeness:.1%}")
+
+
 # Example usage
 if __name__ == "__main__":
+    with open('labeled5mEE.pkl', 'rb') as file:
+        data = pickle.load(file)
+        data_str(data)
     print("Causal Financial Research System")
     print("=" * 50)
 
     # Example 1: Quick causal research
     print("\n🚀 Running Quick Causal Research...")
-    # results = quick_causal_research(
+    results = quick_causal_research(
+        labeled_data='labeled5mEE.pkl',
+        max_time_minutes=30,
+        results_dir="causal_results",
+        verbose=True
+    )
+    # print("\n🚀 Running Deep Causal Research...")
+    # results = deep_causal_research(
     #     labeled_data='labeled5mEE.pkl',
-    #     max_time_minutes=30,
+    #     max_time_minutes=120,
     #     results_dir="causal_results",
     #     verbose=True
     # )

@@ -2003,7 +2003,7 @@ if __name__ == "__main__":
 
     # Deep research example
     # results = deep_agentic_research(
-    #     labeled_data="your_financial_data.pkl",
+    #     labeled_data="labeled5mEE.pkl",
     #     max_time_minutes=120,
     #     results_dir="agentic_results",
     #     verbose=True
