@@ -690,10 +690,14 @@ class CausalFeatureDiscovery:
                     structural_result.get('strength', 0),
                     temporal_result.get('strength', 0)
                 ])
-
-                is_plausible, justification, plausibility_confidence = self.theory_engine.validate_economic_plausibility(
-                    feature, event_label, max_strength
-                )
+                # TODO replace A
+                # is_plausible, justification, plausibility_confidence = self.theory_engine.validate_economic_plausibility(
+                #     feature, event_label, max_strength
+                # )
+                # TODO with B Temporarily Bypass Economic Plausibility
+                is_plausible = True
+                justification = "Temporarily bypassed for testing"
+                plausibility_confidence = 0.5
 
                 # Determine if relationship is causal
                 is_causal = (
@@ -716,7 +720,7 @@ class CausalFeatureDiscovery:
                     features_df[feature], target_series
                 )
 
-                if break_test.get('has_breaks', True):  # Skip if unstable
+                if break_test.get('has_breaks', False):  # Skip if unstable # TODO turn False to True
                     continue
 
                 # Determine relationship type and mechanism
@@ -957,7 +961,7 @@ class CausalResearchAgent:
             raise FileNotFoundError(f"Data file not found: {data_path}")
 
         if data_path.suffix.lower() == '.pkl':
-            return pd.read_pickle(data_path)
+            return pd.read_pickle(data_path)[:50000]
         elif data_path.suffix.lower() == '.csv':
             return pd.read_csv(data_path, index_col=0, parse_dates=True)
         elif data_path.suffix.lower() in ['.xlsx', '.xls']:
@@ -2044,108 +2048,3 @@ if __name__ == "__main__":
     print("    labeled_data='new_data.pkl',")
     print("    causal_relationships_file='causal_knowledge_base.pkl'")
     print(")")
-
-"""
-🔬 CAUSAL FINANCIAL RESEARCH SYSTEM
-
-This system implements Marcos López de Prado's philosophy of focusing on causation
-rather than correlation in financial feature research. Key innovations:
-
-🎯 CAUSAL-FIRST APPROACH
-━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Economic Theory Engine: Generates hypotheses based on established financial theory
-2. Causal Inference Testing: Granger causality, structural causality, temporal ordering
-3. Economic Plausibility Validation: Ensures relationships make economic sense
-4. Structural Stability Testing: Validates robustness across market regimes
-
-🧠 INTELLIGENT COMPONENTS
-━━━━━━━━━━━━━━━━━━━━━━━━━
-• EconomicTheoryEngine: Encodes financial theory and generates testable hypotheses
-• CausalInferenceEngine: Applies rigorous causal testing methods
-• StructuralStabilityValidator: Tests relationship stability across regimes
-• CausalFeatureDiscovery: Discovers causally valid features
-• CausalAgentKnowledgeBase: Stores causal relationships and insights
-
-⚙️ ECONOMIC MECHANISMS ENCODED
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Information Asymmetry: Informed traders cause price movements
-• Liquidity Provision: Market makers adjust quotes based on inventory
-• Momentum Herding: Past returns cause future returns through behavior
-• Mean Reversion: Prices revert to fundamental value after deviations
-• Volatility Clustering: High volatility causes future high volatility
-• Order Flow Impact: Direct price impact through market mechanics
-
-📊 USAGE MODES
-━━━━━━━━━━━━━━
-1. quick_causal_research(): Fast discovery of strongest causal relationships
-2. deep_causal_research(): Comprehensive analysis with extended insights
-3. focused_causal_research(): Target specific events and mechanisms
-4. validate_causal_stability(): Test relationship stability on new data
-
-🎯 KEY ADVANTAGES OVER CORRELATION-BASED SYSTEMS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Theory-driven feature selection based on economic mechanisms
-✅ Temporal causality validation (cause must precede effect)
-✅ Structural stability testing across market regimes
-✅ Economic plausibility checking of relationships
-✅ Focus on durable causal mechanisms rather than spurious correlations
-✅ Built-in protection against overfitting to noise
-✅ Explicit modeling of economic mechanisms underlying relationships
-
-This represents a paradigm shift from "what correlates" to "what causes what and why"
-in financial machine learning, aligned with López de Prado's advocacy for 
-economically grounded feature research.
-"""
-
-"""🔬 Key System Components:
-1. Economic Theory Engine
-
-Encodes established financial mechanisms (information asymmetry, liquidity provision, etc.)
-Generates testable economic hypotheses for each event type
-Maps features to theoretical economic mechanisms
-Validates economic plausibility of discovered relationships
-
-2. Causal Inference Engine
-
-Granger Causality Testing: Tests if past values of X help predict Y
-Structural Causality Testing: Tests relationship stability across time periods
-Temporal Ordering Validation: Ensures causes precede effects
-Rigorous statistical testing with proper significance levels
-
-3. Structural Stability Validator
-
-Market Regime Detection: Identifies bull/bear/crisis/sideways markets
-Cross-Regime Stability Testing: Validates relationships across different market conditions
-Structural Break Detection: Identifies when causal relationships break down
-Ensures relationships are robust, not regime-specific noise
-
-4. Causal Feature Discovery
-
-Theory-first approach: Starts with economic mechanisms, not data mining
-Multi-layered validation: Statistical + Economic + Temporal + Stability
-Filters out spurious correlations that lack economic foundation
-Focuses on durable causal mechanisms
-
-🎯 Four Usage Modes:
-
-quick_causal_research() - 30-minute focused discovery
-deep_causal_research() - 2-hour comprehensive analysis
-focused_causal_research() - Target specific events/mechanisms
-validate_causal_stability() - Test relationships on new data
-
-🧠 Intelligence Features:
-
-Economic Mechanism Encoding: Built-in knowledge of market microstructure
-Hypothesis Generation: Creates testable predictions from financial theory
-Causal Strength Measurement: Quantifies relationship robustness
-Regime-Aware Analysis: Adapts to different market conditions
-Knowledge Base Learning: Accumulates causal insights over time
-
-🎯 Key Advantages Over Correlation Systems: ✅ Theory-Driven: Features selected based on economic mechanisms, 
-not statistics ✅ Temporal Causality: Ensures causes precede effects ✅ Structural Stability: Tests robustness across 
-market regimes ✅ Economic Plausibility: Rejects statistically significant but economically nonsensical relationships 
-✅ Overfitting Protection: Built-in guards against spurious pattern discovery ✅ Mechanism Focus: Identifies why 
-relationships work, not just that they work This system embodies López de Prado's philosophy: "Focus on causation, 
-not correlation" - providing a robust foundation for financial ML that prioritizes durable economic mechanisms over 
-fleeting statistical patterns. Would you like me to demonstrate how to use any of these components or explain any 
-specific aspect in more detail?"""
