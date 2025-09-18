@@ -1,0 +1,566 @@
+{
+  "research_strategy": "causal_inference_focused",
+  "research_context": {
+    "start_time": "2025-09-16T12:40:55.631854",
+    "total_duration_seconds": 15262.829161,
+    "time_budget_minutes": 30,
+    "events_attempted": 26,
+    "events_successful": 1,
+    "events_failed": 0
+  },
+  "research_results": {
+    "CUSUM_event_label": {
+      "event_label": "CUSUM_event_label",
+      "hypotheses_tested": 4,
+      "causal_relationships": [
+        {
+          "cause_feature": "Open",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 1.0,
+          "p_value": 2.1813887444408852e-58,
+          "confidence_interval": [
+            0.8,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T13:02:23.673730",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "High",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 1.0,
+          "p_value": 1.3633331652578554e-41,
+          "confidence_interval": [
+            0.8,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T13:20:29.280071",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "Low",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 1.0,
+          "p_value": 5.311193748616856e-47,
+          "confidence_interval": [
+            0.8,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T13:36:02.714563",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "Close",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 1.0,
+          "p_value": 4.442544894416163e-42,
+          "confidence_interval": [
+            0.8,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T13:48:33.673196",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "Volume",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 0.9999999980785367,
+          "p_value": 1.9214633080815437e-09,
+          "confidence_interval": [
+            0.7999999984628294,
+            1
+          ],
+          "economic_justification": "Event type partially matches feature mechanisms",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T14:00:54.322118",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "vol_realized",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 0.9977923644279292,
+          "p_value": 0.002207635572070785,
+          "confidence_interval": [
+            0.7982338915423434,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T15:29:44.687616",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "CUSUM_pos",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "granger_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 0.9954717789476034,
+          "p_value": 0.004528221052396595,
+          "confidence_interval": [
+            0.7963774231580828,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 5,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T15:17:25.311638",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "EMA_fast_distance_atr",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "volatility_clustering",
+          "strength": 0.9933853831864276,
+          "p_value": 0.006614616813572455,
+          "confidence_interval": [
+            0.794708306549142,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T15:54:21.951346",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "EMA_medium_distance_atr",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "volatility_clustering",
+          "strength": 0.9816188089834226,
+          "p_value": 0.018381191016577446,
+          "confidence_interval": [
+            0.7852950471867381,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T16:18:36.867565",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "ATR",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "volatility_clustering",
+          "strength": 0.9642214228877423,
+          "p_value": 0.0357785771122577,
+          "confidence_interval": [
+            0.7713771383101938,
+            1
+          ],
+          "economic_justification": "Plausibility bypassed: <EconomicMechanism.RISK_PREMIUM: 'risk_premium'>",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T15:05:13.077249",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "ATR_pct",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "volatility_clustering",
+          "strength": 0.9537963216838996,
+          "p_value": 0.04620367831610041,
+          "confidence_interval": [
+            0.7630370573471197,
+            1
+          ],
+          "economic_justification": "Plausibility bypassed: <EconomicMechanism.RISK_PREMIUM: 'risk_premium'>",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T15:42:18.780286",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "EMA_medium_distance_pct",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 0.9440969845291122,
+          "p_value": 0.05,
+          "confidence_interval": [
+            0.7552775876232898,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.07991452287229418,
+            "CRISIS": 0.07883024538269956,
+            "BEAR_TRENDING": 0.06846881723016286,
+            "SIDEWAYS_HIGH_VOL": 0.06935139219846558
+          },
+          "discovery_date": "2025-09-16T16:31:02.918738",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "EMA_slow_distance_pct",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 0.9319359558471052,
+          "p_value": 0.05,
+          "confidence_interval": [
+            0.7455487646776842,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.08307396078369007,
+            "CRISIS": 0.08308284205903572,
+            "BEAR_TRENDING": 0.07675693963137752,
+            "SIDEWAYS_HIGH_VOL": 0.07797988768293371
+          },
+          "discovery_date": "2025-09-16T16:43:06.588371",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "4H_Volume",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "information_flow",
+          "economic_mechanism": "order_flow_impact",
+          "strength": 0.9164791202129325,
+          "p_value": 0.08352087978706751,
+          "confidence_interval": [
+            0.733183296170346,
+            1
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.0,
+            "CRISIS": 0.0,
+            "BEAR_TRENDING": 0.0,
+            "SIDEWAYS_HIGH_VOL": 0.0
+          },
+          "discovery_date": "2025-09-16T14:15:28.153266",
+          "validation_history": []
+        },
+        {
+          "cause_feature": "MACD",
+          "effect_event": "CUSUM_event_label",
+          "relationship_type": "structural_causal",
+          "economic_mechanism": "information_asymmetry",
+          "strength": 0.07509630402914957,
+          "p_value": 0.05,
+          "confidence_interval": [
+            0.060077043223319665,
+            0.09011556483497948
+          ],
+          "economic_justification": "Economic plausibility check bypassed",
+          "temporal_lag": 1,
+          "regime_stability": {
+            "SIDEWAYS_LOW_VOL": 0.0,
+            "BULL_TRENDING": 0.07082618261407563,
+            "CRISIS": 0.0735732097369446,
+            "BEAR_TRENDING": 0.06689041090992255,
+            "SIDEWAYS_HIGH_VOL": 0.07120770881582711
+          },
+          "discovery_date": "2025-09-16T14:28:51.177059",
+          "validation_history": []
+        }
+      ],
+      "validation_results": {
+        "Open\u2192CUSUM_event_label_1.000": {
+          "auc_roc": 0.48928830376856564,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.48928830376856564
+        },
+        "High\u2192CUSUM_event_label_1.000": {
+          "auc_roc": 0.4893085399107154,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.4893085399107154
+        },
+        "Low\u2192CUSUM_event_label_1.000": {
+          "auc_roc": 0.4892011279846667,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.4892011279846667
+        },
+        "Close\u2192CUSUM_event_label_1.000": {
+          "auc_roc": 0.4892376415579396,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.4892376415579396
+        },
+        "Volume\u2192CUSUM_event_label_1.000": {
+          "auc_roc": 0.5108329114126132,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5108329114126132
+        },
+        "vol_realized\u2192CUSUM_event_label_0.998": {
+          "auc_roc": 0.49230227109708996,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.49230227109708996
+        },
+        "CUSUM_pos\u2192CUSUM_event_label_0.995": {
+          "auc_roc": 0.5009221643896585,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5009221643896585
+        },
+        "EMA_fast_distance_atr\u2192CUSUM_event_label_0.993": {
+          "auc_roc": 0.5,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5
+        },
+        "EMA_medium_distance_atr\u2192CUSUM_event_label_0.982": {
+          "auc_roc": 0.5,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5
+        },
+        "ATR\u2192CUSUM_event_label_0.964": {
+          "auc_roc": 0.5,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5
+        },
+        "ATR_pct\u2192CUSUM_event_label_0.954": {
+          "auc_roc": 0.5,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5
+        },
+        "EMA_medium_distance_pct\u2192CUSUM_event_label_0.944": {
+          "auc_roc": 0.5336404330495169,
+          "total_return": 9.294933018867924,
+          "sharpe_ratio": 2.7434913627151456,
+          "num_folds": 3,
+          "economic_score": 5.49379251440445
+        },
+        "EMA_slow_distance_pct\u2192CUSUM_event_label_0.932": {
+          "auc_roc": 0.5379274004617245,
+          "total_return": 8.750433018867923,
+          "sharpe_ratio": 1.047243956997295,
+          "num_folds": 3,
+          "economic_score": 5.245025087215787
+        },
+        "4H_Volume\u2192CUSUM_event_label_0.916": {
+          "auc_roc": 0.5146120903616024,
+          "total_return": 0.0,
+          "sharpe_ratio": 0,
+          "num_folds": 3,
+          "economic_score": 0.5146120903616024
+        },
+        "MACD\u2192CUSUM_event_label_0.075": {
+          "auc_roc": 0.5361465889420419,
+          "total_return": 18.313349999999996,
+          "sharpe_ratio": 0.8213644423555299,
+          "num_folds": 3,
+          "economic_score": 10.354786723543784
+        }
+      },
+      "causal_insight": {
+        "insight_type": "causal_mechanism_discovery",
+        "mechanism": "information_asymmetry",
+        "description": "Discovered 15 causal relationships dominated by information_asymmetry mechanism. Combined causal strength: 13.754, Average economic performance: 2.4239",
+        "evidence": {
+          "num_relationships": 15,
+          "total_strength": 13.753894442813861,
+          "avg_performance": 2.423914402515723,
+          "mechanisms": [
+            "information_asymmetry",
+            "information_asymmetry",
+            "information_asymmetry",
+            "information_asymmetry",
+            "information_asymmetry",
+            "information_asymmetry",
+            "information_asymmetry",
+            "volatility_clustering",
+            "volatility_clustering",
+            "volatility_clustering",
+            "volatility_clustering",
+            "information_asymmetry",
+            "information_asymmetry",
+            "order_flow_impact",
+            "information_asymmetry"
+          ]
+        },
+        "confidence": 0.9169262961875907,
+        "actionable_strategy": "Focus on information_asymmetry-based features for this event type",
+        "risk_factors": [
+          "Mechanism may be regime-dependent",
+          "Causal relationships can break down"
+        ],
+        "regime_dependence": true,
+        "timestamp": "2025-09-16T16:55:18.422012"
+      },
+      "research_timestamp": "2025-09-16T16:55:18.423012",
+      "data_samples": 595026,
+      "features_tested": 89
+    }
+  },
+  "failed_events": [],
+  "causal_analysis": {
+    "summary": {
+      "total_relationships": 15,
+      "dominant_mechanisms": {
+        "information_asymmetry": 10,
+        "volatility_clustering": 4,
+        "order_flow_impact": 1
+      },
+      "most_causal_features": {
+        "Open": 1,
+        "High": 1,
+        "Low": 1,
+        "Close": 1,
+        "Volume": 1,
+        "vol_realized": 1,
+        "CUSUM_pos": 1,
+        "EMA_fast_distance_atr": 1,
+        "EMA_medium_distance_atr": 1,
+        "ATR": 1
+      },
+      "average_causal_strength": 0.9169262961875906,
+      "economic_performance": {
+        "average_return": 2.423914402515723,
+        "profitable_strategies": 3,
+        "total_strategies": 15
+      }
+    },
+    "insights": [
+      "Dominant economic mechanism: information_asymmetry (10 relationships)",
+      "Most causally important feature: Open (1 relationships)",
+      "Average economic return: 2.4239",
+      "Profitable strategies: 3/15"
+    ],
+    "recommendations": [
+      "Focus on features related to: information_asymmetry, volatility_clustering, order_flow_impact",
+      "Strong causal relationships detected - focus on portfolio construction and risk management",
+      "Validate causal relationships on out-of-sample data before live trading",
+      "Monitor for structural breaks that could invalidate causal assumptions"
+    ],
+    "risk_factors": [
+      "Causal relationships may break down during regime changes",
+      "Over-reliance on historical causality can lead to strategy decay",
+      "Economic mechanisms may evolve with market structure changes",
+      "Sample size limitations may affect causal inference validity"
+    ]
+  },
+  "knowledge_base_summary": {
+    "total_relationships": 15,
+    "total_insights": 1,
+    "mechanism_preferences": {
+      "information_asymmetry": 1.9485889902710738,
+      "volatility_clustering": 0.0,
+      "order_flow_impact": 0.0
+    },
+    "failed_relationships": 0
+  }
+}
