@@ -693,6 +693,7 @@ class CombinationFeatureGenerator:
 
 class CausalFeatureDiscovery:
     """Discovers causal features (individual and combinations)"""
+
     def __init__(self, theory_engine: EconomicTheoryEngine, causal_engine: CausalInferenceEngine):
         self.theory_engine = theory_engine
         self.causal_engine = causal_engine
@@ -703,6 +704,12 @@ class CausalFeatureDiscovery:
                                  use_combinations: bool = True, max_combinations: int = 30,
                                  max_combination_size: int = 3) -> Dict[str, Any]:
         """Discover causally valid features for predicting an event"""
+
+        result = {
+            'individual_relationships': [],
+            'feature_combinations': [],
+            'best_approach': 'individual'
+        }
         exclude_features = ['Open', 'High', 'Low', 'Volume',
                             '30min_Open', '30min_High', '30min_Low', '30min_Close',
                             '4H_Open', '4H_High', '4H_Low', '4H_Close',
@@ -713,11 +720,6 @@ class CausalFeatureDiscovery:
                                if f not in exclude_features
                            ][:min(50, len(features_df.columns))]  # limit to 50 features
         print('features_to_test: ', len(features_to_test), features_to_test)
-        result = {
-            'individual_relationships': [],
-            'feature_combinations': [],
-            'best_approach': 'individual'
-        }
 
         # Test individual features
         individual_relationships = self._discover_individual_features(features_df, target_series, event_label,
@@ -1311,6 +1313,153 @@ def enhanced_quick_causal_research(labeled_data: Union[pd.DataFrame, str, Path],
     )
 
 
+def enhanced_deep_causal_research(labeled_data: Union[pd.DataFrame, str, Path],
+                                  max_time_minutes: int = 120,
+                                  max_combinations: int = 50,
+                                  max_combination_size: int = 4,
+                                  results_dir: Optional[str] = None,
+                                  verbose: bool = True) -> Dict[str, Any]:
+    """Enhanced deep causal research with comprehensive combination analysis"""
+
+    agent = CausalResearchAgent(
+        labeled_data=labeled_data,
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+    results = agent.comprehensive_causal_research_with_combinations(
+        max_time_minutes=max_time_minutes,
+        use_combinations=True,
+        max_combinations=max_combinations,
+        max_combination_size=max_combination_size
+    )
+
+    if verbose:
+        print("\n🔬 DEEP CAUSAL RESEARCH ADDITIONAL ANALYSIS")
+        print("=" * 60)
+
+        # Combination vs Individual comparison
+        total_individual = 0
+        total_combinations = 0
+        for event, result in results.get('research_results', {}).items():
+            total_individual += len(result.get('individual_relationships', []))
+            total_combinations += len(result.get('feature_combinations', []))
+
+        print(f"📊 Discovery Comparison:")
+        print(f"   • Individual relationships: {total_individual}")
+        print(f"   • Feature combinations: {total_combinations}")
+
+        # Show best combinations
+        best_combinations = []
+        for event, result in results.get('research_results', {}).items():
+            for combo in result.get('feature_combinations', []):
+                combo['event'] = event
+                best_combinations.append(combo)
+
+        best_combinations.sort(key=lambda x: x.get('combined_strength', 0), reverse=True)
+
+        if best_combinations:
+            print(f"\n🏆 Top Feature Combinations:")
+            for i, combo in enumerate(best_combinations[:5], 1):
+                print(f"   {i}. {combo['combination_name']} (Event: {combo['event']})")
+                print(f"      Strength: {combo.get('combined_strength', 0):.3f}")
+                print(f"      AUC: {combo.get('auc_score', 0):.3f}")
+
+    return results
+
+
+def focused_combination_research(labeled_data: Union[pd.DataFrame, str, Path],
+                                 target_events: List[str],
+                                 max_combination_size: int = 4,
+                                 min_causal_strength: float = 0.3,
+                                 results_dir: Optional[str] = None,
+                                 verbose: bool = True) -> Dict[str, Any]:
+    """Focused causal research on specific events with combination analysis"""
+
+    agent = CausalResearchAgent(
+        labeled_data=labeled_data,
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+    # Filter events to research
+    available_events = [event for event in target_events if event in agent.label_columns]
+
+    if not available_events:
+        raise ValueError(f"None of the target events {target_events} found in data columns")
+
+    results = agent.comprehensive_causal_research_with_combinations(
+        max_time_minutes=90,
+        priority_events=available_events,
+        use_combinations=True,
+        max_combinations=40,
+        max_combination_size=max_combination_size
+    )
+
+    # Post-process results to filter by strength
+    filtered_results = {}
+    for event_label, result in results['research_results'].items():
+        # Filter individual relationships
+        strong_individual = [
+            rel for rel in result.get('individual_relationships', [])
+            if rel.get('strength', 0) >= min_causal_strength
+        ]
+
+        # Filter combinations
+        strong_combinations = [
+            combo for combo in result.get('feature_combinations', [])
+            if combo.get('combined_strength', 0) >= min_causal_strength
+        ]
+
+        if strong_individual or strong_combinations:
+            result['individual_relationships'] = strong_individual
+            result['feature_combinations'] = strong_combinations
+            filtered_results[event_label] = result
+
+    results['research_results'] = filtered_results
+    results['filtering'] = {
+        'min_causal_strength': min_causal_strength,
+        'original_events': len(results.get('research_results', {})),
+        'filtered_events': len(filtered_results)
+    }
+
+    if verbose:
+        print(f"\n🎯 FOCUSED COMBINATION RESEARCH FILTERING")
+        print(f"Minimum causal strength: {min_causal_strength}")
+        print(f"Events meeting threshold: {len(filtered_results)}")
+
+    return results
+
+
+# Keep original functions for compatibility
+def quick_causal_research(labeled_data: Union[pd.DataFrame, str, Path],
+                          max_time_minutes: int = 30,
+                          results_dir: Optional[str] = None,
+                          verbose: bool = True) -> Dict[str, Any]:
+    """Original quick causal research (individual features only)"""
+    return enhanced_quick_causal_research(
+        labeled_data=labeled_data,
+        max_time_minutes=max_time_minutes,
+        use_combinations=False,  # Original behavior
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+
+def deep_causal_research(labeled_data: Union[pd.DataFrame, str, Path],
+                         max_time_minutes: int = 120,
+                         results_dir: Optional[str] = None,
+                         verbose: bool = True) -> Dict[str, Any]:
+    """Original deep causal research (individual features only)"""
+    return enhanced_deep_causal_research(
+        labeled_data=labeled_data,
+        max_time_minutes=max_time_minutes,
+        max_combinations=0,  # No combinations for original behavior
+        results_dir=results_dir,
+        verbose=verbose
+    )
+
+
 # Example usage
 if __name__ == "__main__":
     print("Enhanced Causal Financial Research System")
@@ -1323,7 +1472,7 @@ if __name__ == "__main__":
         max_time_minutes=45,
         use_combinations=True,
         max_combinations=30,
-        max_combination_size=5,
+        max_combination_size=3,
         verbose=True
     )
 
